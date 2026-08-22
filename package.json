@@ -1,0 +1,14 @@
+{
+  "name": "valorant-scout",
+  "private": true,
+  "workspaces": [
+    "apps/web",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace=web",
+    "lint:web": "npm run lint --workspace=web",
+    "typecheck:web": "npm run typecheck --workspace=web",
+    "typecheck:shared": "npm run typecheck --workspace=@valorant-scout/shared"
+  }
+}

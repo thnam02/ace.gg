@@ -1,0 +1,21 @@
+[project]
+name = "valorant-scout-api"
+version = "0.1.0"
+description = "VALORANT Scout API"
+requires-python = ">=3.12"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+mypy_path = "."
+explicit_package_bases = true
+packages = ["app"]
