@@ -72,21 +72,6 @@ docker compose up --build
 - API: [http://localhost:8000](http://localhost:8000)
 - Postgres: `localhost:5432`
 
-## Lint and type checks
-
-```bash
-# API
-cd apps/api
-source .venv/bin/activate
-ruff check .
-mypy
-
-# Web + shared types
-npm run lint:web
-npm run typecheck:web
-npm run typecheck:shared
-```
-
 ## Current modules
 
 | Module | Status |
