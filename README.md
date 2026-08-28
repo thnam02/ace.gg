@@ -59,19 +59,6 @@ npm install
 npm run dev:web
 ```
 
-UI: [http://localhost:3000](http://localhost:3000)
-
-## Docker Compose
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-- Web: [http://localhost:3000](http://localhost:3000)
-- API: [http://localhost:8000](http://localhost:8000)
-- Postgres: `localhost:5432`
-
 ## Current modules
 
 | Module | Status |
