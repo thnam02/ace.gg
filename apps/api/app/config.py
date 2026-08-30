@@ -8,10 +8,20 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
+    data_provider: str = "mock"
+    vlrggapi_base_url: str = "http://127.0.0.1:3001"
+    vlr_default_players: str = "tenz,aspas,something"
+    vlr_stats_region: str = "americas"
+    vlr_stats_timespan: str = "90"
+    vlr_player_timespan: str = "90d"
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def vlr_default_player_list(self) -> list[str]:
+        return [player.strip() for player in self.vlr_default_players.split(",") if player.strip()]
 
 
 settings = Settings()

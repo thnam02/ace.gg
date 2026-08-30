@@ -17,7 +17,7 @@ class PlayerComparisonService:
             else:
                 players.append(player)
 
-        notes = "Side-by-side mock stats only. Custom rating is not implemented yet."
+        notes = "Side-by-side pro stats. Custom rating is not implemented yet."
         if missing:
             notes = f"{notes} Missing players: {', '.join(missing)}."
 

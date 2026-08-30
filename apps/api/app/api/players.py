@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.providers.mock import MockPlayerDataProvider
+from app.providers.factory import create_player_data_provider
 from app.schemas.player import PlayerComparison, PlayerProfile
 from app.services.player_comparison import PlayerComparisonService
 from app.services.player_stats import PlayerStatsService
 
 router = APIRouter(prefix="/players", tags=["players"])
 
-_provider = MockPlayerDataProvider()
+_provider = create_player_data_provider()
 _stats_service = PlayerStatsService(_provider)
 _comparison_service = PlayerComparisonService(_provider)
 
