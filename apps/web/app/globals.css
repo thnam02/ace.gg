@@ -1,23 +1,79 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0c0e12;
-  --foreground: #f4f1ea;
+  --background: #0b0d10;
+  --foreground: #ece8e1;
+  --surface: #12161d;
+  --surface-raised: #1a2030;
+  --muted: #8b95a5;
   --accent: #ff4655;
-  --panel: #161a22;
+  --accent-soft: rgba(255, 70, 85, 0.12);
+  --success: #3ddc97;
+  --warning: #f5a623;
+  --border: rgba(255, 255, 255, 0.08);
+  --glow: rgba(255, 70, 85, 0.35);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-muted: var(--muted);
   --color-accent: var(--accent);
-  --color-panel: var(--panel);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-border: var(--border);
+  --font-sans: var(--font-dm-sans);
+  --font-display: var(--font-barlow);
+  --font-mono: var(--font-jetbrains);
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--border);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-dm-sans), system-ui, sans-serif;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 70, 85, 0.08), transparent),
+      linear-gradient(180deg, #0b0d10 0%, #0f1218 100%);
+    min-height: 100%;
+  }
+
+  ::selection {
+    background: rgba(255, 70, 85, 0.35);
+    color: #fff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@layer utilities {
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .panel {
+    @apply rounded-2xl border border-border bg-surface;
+  }
+
+  .panel-raised {
+    @apply rounded-2xl border border-border bg-surface-raised;
+  }
 }
