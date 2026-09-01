@@ -1,32 +1,30 @@
 # VALORANT Scout
 
-Player stats and comparison app. This scaffold uses mock player data only. Riot API integration and the custom rating metric are not implemented yet.
+Player stats and comparison console: FastAPI backend plus a dense Next.js dashboard.
 
 ## Stack
 
-- Frontend: Next.js, TypeScript, Tailwind
-- Backend: FastAPI, Python
-- Database: PostgreSQL
+- Backend: FastAPI, Python, PostgreSQL
+- Frontend: Next.js, Tailwind CSS
 - Local orchestration: Docker Compose
 
 ## Project layout
 
 ```text
 apps/
-  web/                 Next.js UI
   api/                 FastAPI service
     app/
       api/             HTTP routes
       models/          SQLAlchemy models
       schemas/         Pydantic schemas
-      services/        Player stats and comparison
-      providers/       Data sources (mock for now)
+      services/        Player stats, comparison, and match ingestion
+      providers/       Data sources
+      parsers/         VLR match HTML parsing
       metrics/         Custom metric engine placeholder
-packages/
-  shared/              Shared TypeScript API types
+  web/                 Next.js dashboard
 ```
 
-## Quick start (local, no Docker)
+## Quick start
 
 Copy environment defaults:
 
@@ -50,6 +48,18 @@ Health check: [http://localhost:8000/health](http://localhost:8000/health)
 
 Without PostgreSQL running, the API still serves mock players and `/health` reports `database: disconnected`.
 
+### Frontend
+
+With the API running:
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Dashboard: [http://localhost:3000](http://localhost:3000)
+
 ### Database migrations
 
 From `apps/api`, with `DATABASE_URL` pointing at PostgreSQL:
@@ -60,21 +70,12 @@ alembic downgrade -1
 alembic current
 ```
 
-### Frontend
-
-From the repo root:
+## Docker Compose
 
 ```bash
-npm install
-npm run dev:web
+docker compose up --build
 ```
 
-## Current modules
-
-| Module | Status |
-| --- | --- |
-| Player stats | Mock profiles via `/players` and `/players/{id}` |
-| Player comparison | Placeholder via `/players/compare?ids=tenz&ids=aspas` |
-| Data provider | `MockPlayerDataProvider` only |
-| Custom metric engine | Placeholder; rating is not implemented |
-| Riot API | Not integrated |
+- Web: [http://localhost:3000](http://localhost:3000)
+- API: [http://localhost:8000](http://localhost:8000)
+- Postgres: `localhost:5432`

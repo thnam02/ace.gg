@@ -2,13 +2,11 @@
   "name": "valorant-scout",
   "private": true,
   "workspaces": [
-    "apps/web",
-    "packages/shared"
+    "apps/web"
   ],
   "scripts": {
-    "dev:web": "npm run dev --workspace=web",
-    "lint:web": "npm run lint --workspace=web",
-    "typecheck:web": "npm run typecheck --workspace=web",
-    "typecheck:shared": "npm run typecheck --workspace=@valorant-scout/shared"
+    "dev": "npm run dev --prefix apps/web",
+    "build": "npm run build --prefix apps/web",
+    "lint": "npm run lint --prefix apps/web"
   }
 }
