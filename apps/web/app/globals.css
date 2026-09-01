@@ -1,56 +1,117 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0b0d10;
-  --foreground: #ece8e1;
-  --surface: #12161d;
-  --surface-raised: #1a2030;
-  --muted: #8b95a5;
-  --accent: #ff4655;
-  --accent-soft: rgba(255, 70, 85, 0.12);
-  --success: #3ddc97;
-  --warning: #f5a623;
-  --border: rgba(255, 255, 255, 0.08);
-  --glow: rgba(255, 70, 85, 0.35);
+  --scout-primary: #1e293b;
+  --scout-on-primary: #ffffff;
+  --scout-secondary: #334155;
+  --scout-on-secondary: #ffffff;
+  --scout-accent: #22c55e;
+  --scout-on-accent: #0f172a;
+  --scout-background: #0f172a;
+  --scout-foreground: #f8fafc;
+  --scout-card: #1b2336;
+  --scout-card-foreground: #f8fafc;
+  --scout-muted: #272f42;
+  --scout-muted-foreground: #94a3b8;
+  --scout-border: #475569;
+  --scout-destructive: #ef4444;
+  --scout-on-destructive: #000000;
+  --scout-ring: #ffffff;
+  --space-xs: 0.125rem;
+  --space-sm: 0.25rem;
+  --space-md: 0.5rem;
+  --space-lg: 0.75rem;
+  --space-xl: 1rem;
+  --space-2xl: 1.5rem;
+  --space-3xl: 2rem;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+  color-scheme: dark;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --color-muted: var(--muted);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-border: var(--border);
-  --font-sans: var(--font-dm-sans);
-  --font-display: var(--font-barlow);
-  --font-mono: var(--font-jetbrains);
+  --color-primary: var(--scout-primary);
+  --color-on-primary: var(--scout-on-primary);
+  --color-secondary: var(--scout-secondary);
+  --color-on-secondary: var(--scout-on-secondary);
+  --color-accent: var(--scout-accent);
+  --color-on-accent: var(--scout-on-accent);
+  --color-background: var(--scout-background);
+  --color-foreground: var(--scout-foreground);
+  --color-card: var(--scout-card);
+  --color-card-foreground: var(--scout-card-foreground);
+  --color-muted: var(--scout-muted);
+  --color-muted-foreground: var(--scout-muted-foreground);
+  --color-border: var(--scout-border);
+  --color-destructive: var(--scout-destructive);
+  --color-on-destructive: var(--scout-on-destructive);
+  --color-ring: var(--scout-ring);
+  --font-sans: var(--font-fira-sans);
+  --font-mono: var(--font-fira-code);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
 }
 
-@layer base {
-  *,
-  *::before,
-  *::after {
-    border-color: var(--border);
-  }
+* {
+  box-sizing: border-box;
+}
 
-  body {
-    background: var(--background);
-    color: var(--foreground);
-    font-family: var(--font-dm-sans), system-ui, sans-serif;
-    background-image:
-      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(255, 70, 85, 0.08), transparent),
-      linear-gradient(180deg, #0b0d10 0%, #0f1218 100%);
-    min-height: 100%;
-  }
+html {
+  background: var(--scout-background);
+}
 
-  ::selection {
-    background: rgba(255, 70, 85, 0.35);
-    color: #fff;
-  }
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(34, 197, 94, 0.12), transparent 55%),
+    radial-gradient(900px 400px at 90% 0%, rgba(148, 163, 184, 0.12), transparent 50%),
+    var(--scout-background);
+  color: var(--scout-foreground);
+  font-family: var(--font-fira-sans), sans-serif;
+  min-height: 100%;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-fira-code), monospace;
+}
+
+a,
+button,
+label,
+summary,
+[role="button"] {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--scout-ring);
+  outline-offset: 2px;
+}
+
+.glass-panel {
+  background: color-mix(in srgb, var(--scout-card) 80%, transparent);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgb(255 255 255 / 0.2);
+  box-shadow: var(--shadow-md);
+}
+
+.bar-stripe {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgb(255 255 255 / 0.18) 0 6px,
+    transparent 6px 12px
+  );
+}
+
+.bar-dots {
+  background-image: radial-gradient(rgb(255 255 255 / 0.35) 1px, transparent 1.5px);
+  background-size: 6px 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -61,19 +122,5 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
-  }
-}
-
-@layer utilities {
-  .focus-ring {
-    @apply outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
-  }
-
-  .panel {
-    @apply rounded-2xl border border-border bg-surface;
-  }
-
-  .panel-raised {
-    @apply rounded-2xl border border-border bg-surface-raised;
   }
 }

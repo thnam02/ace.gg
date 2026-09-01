@@ -1,16 +1,15 @@
 {
-  "name": "web",
+  "name": "valorant-scout-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint"
   },
   "dependencies": {
-    "@valorant-scout/shared": "*",
+    "@phosphor-icons/react": "^2.1.10",
     "next": "16.3.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"

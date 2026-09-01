@@ -1,37 +1,56 @@
+import { Fira_Code, Fira_Sans } from "next/font/google";
 import type { Metadata } from "next";
-import { Barlow_Condensed, DM_Sans, JetBrains_Mono } from "next/font/google";
+import type { ReactNode } from "react";
+
+import { SiteHeader } from "@/components/site-header";
+import { fetchHealth } from "@/lib/api";
+
 import "./globals.css";
 
-const barlow = Barlow_Condensed({
-  variable: "--font-barlow",
+const firaSans = Fira_Sans({
+  variable: "--font-fira-sans",
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const dmSans = DM_Sans({
-  variable: "--font-dm-sans",
+const firaCode = Fira_Code({
+  variable: "--font-fira-code",
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
-});
-
-const jetbrains = JetBrains_Mono({
-  variable: "--font-jetbrains",
-  subsets: ["latin"],
-  weight: ["400", "500"],
+  weight: ["400", "500", "600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "VALORANT Scout",
-  description: "Pro player stats and comparison for VALORANT esports",
+  title: {
+    default: "VALORANT Scout",
+    template: "%s · VALORANT Scout",
+  },
+  description: "Dense player stats console for VALORANT roster comparison.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: ReactNode;
+}>) {
+  const health = await fetchHealth();
+
   return (
     <html
       lang="en"
-      className={`${barlow.variable} ${dmSans.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${firaSans.variable} ${firaCode.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col text-foreground">{children}</body>
+      <body className="flex min-h-full flex-col font-sans">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:absolute focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-accent focus:px-3 focus:py-1 focus:text-on-accent"
+        >
+          Skip to content
+        </a>
+        <SiteHeader health={health} />
+        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4">
+          {children}
+        </main>
+      </body>
     </html>
   );
 }

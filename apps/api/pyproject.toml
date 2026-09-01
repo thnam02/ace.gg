@@ -7,10 +7,16 @@ requires-python = ">=3.12"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
-src = ["app"]
+src = ["app", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]
+
+[tool.ruff.lint.per-file-ignores]
+"alembic/env.py" = ["I"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -19,3 +25,11 @@ warn_unused_ignores = true
 mypy_path = "."
 explicit_package_bases = true
 packages = ["app"]
+
+[[tool.mypy.overrides]]
+module = "app.providers.vlr"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
