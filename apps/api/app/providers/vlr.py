@@ -10,7 +10,7 @@ _VLR_PLAYER_PATH = re.compile(r"/player/(\d+)")
 def _parse_float(value: str | int | float | None) -> float:
     if value is None:
         return 0.0
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     cleaned = str(value).replace("%", "").strip()
     if not cleaned:
@@ -20,9 +20,7 @@ def _parse_float(value: str | int | float | None) -> float:
 
 def _aggregate_agent_stats(agent_stats: list[dict[str, object]]) -> tuple[PlayerStats, float]:
     if not agent_stats:
-        empty = PlayerStats(
-            matches=0, acs=0.0, kd=0.0, hs_percent=0.0, adr=0.0, win_rate=0.0
-        )
+        empty = PlayerStats(matches=0, acs=0.0, kd=0.0, hs_percent=0.0, adr=0.0, win_rate=0.0)
         return empty, 0.0
 
     total_rounds = sum(int(entry.get("rounds") or 0) for entry in agent_stats)
@@ -31,11 +29,27 @@ def _aggregate_agent_stats(agent_stats: list[dict[str, object]]) -> tuple[Player
     matches = max(int(entry.get("use_count") or 0) for entry in agent_stats)
 
     if total_rounds > 0:
-        acs = sum(_parse_float(entry.get("acs")) * int(entry.get("rounds") or 0) for entry in agent_stats) / total_rounds
-        adr = sum(_parse_float(entry.get("adr")) * int(entry.get("rounds") or 0) for entry in agent_stats) / total_rounds
-        avg_rating = sum(
-            _parse_float(entry.get("rating")) * int(entry.get("rounds") or 0) for entry in agent_stats
-        ) / total_rounds
+        acs = (
+            sum(
+                _parse_float(entry.get("acs")) * int(entry.get("rounds") or 0)
+                for entry in agent_stats
+            )
+            / total_rounds
+        )
+        adr = (
+            sum(
+                _parse_float(entry.get("adr")) * int(entry.get("rounds") or 0)
+                for entry in agent_stats
+            )
+            / total_rounds
+        )
+        avg_rating = (
+            sum(
+                _parse_float(entry.get("rating")) * int(entry.get("rounds") or 0)
+                for entry in agent_stats
+            )
+            / total_rounds
+        )
     else:
         acs = _parse_float(agent_stats[0].get("acs"))
         adr = _parse_float(agent_stats[0].get("adr"))
@@ -193,7 +207,9 @@ class VlrPlayerDataProvider:
         matches: list[dict[str, object]],
     ) -> PlayerProfile:
         info = data.get("info") if isinstance(data.get("info"), dict) else {}
-        current_teams = data.get("current_teams") if isinstance(data.get("current_teams"), list) else []
+        current_teams = (
+            data.get("current_teams") if isinstance(data.get("current_teams"), list) else []
+        )
         past_teams = data.get("past_teams") if isinstance(data.get("past_teams"), list) else []
         agent_stats = data.get("agent_stats") if isinstance(data.get("agent_stats"), list) else []
 
@@ -243,7 +259,9 @@ class VlrPlayerDataProvider:
                             continue
                         player_name = str(entry.get("player") or "").lower()
                         if player_name:
-                            self._hs_cache[player_name] = _parse_float(entry.get("headshot_percentage"))
+                            self._hs_cache[player_name] = _parse_float(
+                                entry.get("headshot_percentage")
+                            )
 
         return self._hs_cache.get(display_name.lower(), 0.0)
 

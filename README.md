@@ -50,6 +50,16 @@ Health check: [http://localhost:8000/health](http://localhost:8000/health)
 
 Without PostgreSQL running, the API still serves mock players and `/health` reports `database: disconnected`.
 
+### Database migrations
+
+From `apps/api`, with `DATABASE_URL` pointing at PostgreSQL:
+
+```bash
+alembic upgrade head
+alembic downgrade -1
+alembic current
+```
+
 ### Frontend
 
 From the repo root:
