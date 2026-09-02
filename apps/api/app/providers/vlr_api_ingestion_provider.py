@@ -109,26 +109,41 @@ class CachingVlrApiIngestionProvider:
         self._provider.close()
 
     def get_match(self, match_id: int) -> dict[str, Any]:
+        cached = self._cache.load("matches", match_id)
+        if cached is not None:
+            return cached
         data = self._provider.get_match(match_id)
         self._cache.save("matches", match_id, data)
         return data
 
     def get_event(self, event_id: int) -> dict[str, Any]:
+        cached = self._cache.load("events", event_id)
+        if cached is not None:
+            return cached
         data = self._provider.get_event(event_id)
         self._cache.save("events", event_id, data)
         return data
 
     def get_event_matches(self, event_id: int) -> dict[str, Any]:
+        cached = self._cache.load("event_matches", event_id)
+        if cached is not None:
+            return cached
         data = self._provider.get_event_matches(event_id)
         self._cache.save("event_matches", event_id, data)
         return data
 
     def get_player(self, player_id: int) -> dict[str, Any]:
+        cached = self._cache.load("players", player_id)
+        if cached is not None:
+            return cached
         data = self._provider.get_player(player_id)
         self._cache.save("players", player_id, data)
         return data
 
     def get_team(self, team_id: int) -> dict[str, Any]:
+        cached = self._cache.load("teams", team_id)
+        if cached is not None:
+            return cached
         data = self._provider.get_team(team_id)
         self._cache.save("teams", team_id, data)
         return data

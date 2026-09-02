@@ -140,7 +140,18 @@ def test_raw_json_cache_roundtrip(tmp_path: object) -> None:
     assert cache.load("matches", 1) == payload
 
 
-def test_caching_provider_writes_cache(tmp_path: object) -> None:
+def test_caching_provider_reads_existing_cache(tmp_path: object) -> None:
+    from pathlib import Path
+
+    cache = VlrggApiRawCache(Path(str(tmp_path)))
+    cache.save("matches", 900001, {"from": "cache"})
+
+    class ExplodingProvider(StaticVlrApiIngestionProvider):
+        def get_match(self, match_id: int):  # type: ignore[no-untyped-def]
+            raise AssertionError("cache should prevent a network fetch")
+
+    provider = CachingVlrApiIngestionProvider(ExplodingProvider({}), cache)
+    assert provider.get_match(900001) == {"from": "cache"}
     from pathlib import Path
 
     static = StaticVlrApiIngestionProvider({900001: match_900001_bo3()})
@@ -240,3 +251,75 @@ def test_event_page_tier_stored(db_session: Session) -> None:
     event = db_session.scalar(select(Event).where(Event.vlr_event_id == 91000))
     assert event is not None
     assert event.tier == "T1"
+
+
+def test_live_event_matches_use_segments() -> None:
+    from app.normalizers.vlr_api_event_normalizer import VlrApiEventNormalizer
+
+    page = VlrApiEventNormalizer().normalize_event_page(
+        2765,
+        {
+            "segments": {
+                "event": {"name": "Valorant Masters London 2026", "dates": "Jun 6–21, 2026"},
+                "teams": [],
+            }
+        },
+        {"status": 200, "segments": [{"match_id": "684613"}, {"match_id": "684610"}]},
+    )
+    assert page.match_ids == [684613, 684610]
+    assert page.event.start_date is not None
+    assert page.event.end_date is not None
+
+
+def test_live_match_envelope_and_flat_scores() -> None:
+    from app.normalizers.player_identity_resolver import PlayerIdentityResolver
+    from app.normalizers.vlr_api_match_normalizer import VlrApiMatchNormalizer
+    from app.schemas.ingestion_diagnostics import IngestionDiagnostics
+
+    diagnostics = IngestionDiagnostics()
+    resolver = PlayerIdentityResolver.from_event_teams(
+        {
+            "segments": {
+                "teams": [
+                    {"id": "1", "name": "A", "players": [{"id": "10", "name": "Alpha"}]},
+                    {"id": "2", "name": "B", "players": [{"id": "20", "name": "Bravo"}]},
+                ]
+            }
+        },
+        diagnostics=diagnostics,
+    )
+    payload = {
+        "status": 200,
+        "segments": [
+            {
+                "match_id": "111",
+                "status": "final",
+                "teams": [
+                    {"id": "1", "name": "Team A", "score": "0"},
+                    {"id": "2", "name": "Team B", "score": "1"},
+                ],
+                "maps": [
+                    {
+                        "map_name": "Pearl",
+                        "score": {"team1": 6, "team2": 13},
+                        "players": {
+                            "team1": [{"name": "Alpha", "agent": "Jett", "kills": "8"}],
+                            "team2": [{"name": "Bravo", "agent": "Omen", "kills": "12"}],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    data = VlrApiMatchNormalizer(diagnostics).normalize(
+        payload,
+        event_id=2765,
+        identity_resolver=resolver,
+    )
+    assert data.vlr_match_id == 111
+    assert data.maps[0].team_a_score == 6
+    assert data.maps[0].team_b_score == 13
+    assert data.maps[0].rounds_played == 19
+    assert data.maps[0].player_stats[0].rounds == 19
+    assert data.maps[0].player_stats[0].player.vlr_player_id == 10
+

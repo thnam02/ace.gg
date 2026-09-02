@@ -11,11 +11,13 @@ from app.normalizers.vlr_api_parsing import (
     max_kills_from_advanced,
     parse_best_of,
     parse_datetime_text,
+    parse_map_team_score,
     parse_vlr_id,
     team_tag_from_name,
+    unwrap_match_payload,
 )
 from app.parsers.agents import agent_role, normalize_agent_name
-from app.parsers.numbers import parse_int, parse_optional_float, parse_optional_int
+from app.parsers.numbers import parse_int, parse_optional_float
 from app.schemas.ingestion import (
     NormalizedAgent,
     NormalizedEvent,
@@ -42,6 +44,7 @@ class VlrApiMatchNormalizer:
         event: NormalizedEvent | None = None,
         identity_resolver: PlayerIdentityResolver | None = None,
     ) -> NormalizedMatchData:
+        match_data = unwrap_match_payload(match_data)
         match_id = parse_vlr_id(match_data.get("match_id"))
         if match_id is None:
             raise ValueError("Match JSON is missing match_id")
@@ -123,8 +126,8 @@ class VlrApiMatchNormalizer:
             row = as_dict(entry)
             map_name = str(row.get("map_name") or f"Map {index}")
             score = as_dict(row.get("score"))
-            team_a_score = parse_optional_int(as_dict(score.get("team1")).get("total"))
-            team_b_score = parse_optional_int(as_dict(score.get("team2")).get("total"))
+            team_a_score = parse_map_team_score(score.get("team1"))
+            team_b_score = parse_map_team_score(score.get("team2"))
             winner_id = None
             if team_a_score is not None and team_b_score is not None:
                 if team_a_score > team_b_score:

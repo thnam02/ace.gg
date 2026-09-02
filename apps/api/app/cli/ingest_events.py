@@ -24,6 +24,10 @@ def _format_summary(summary: EventIngestionSummary) -> str:
             f"missing_clutch: {summary.missing_clutch}",
             f"unresolved_players: {summary.unresolved_players}",
             f"ambiguous_players: {summary.ambiguous_players}",
+            f"resolved_by_id: {summary.resolved_by_id}",
+            f"resolved_by_roster: {summary.resolved_by_roster}",
+            f"resolved_by_name: {summary.resolved_by_name}",
+            f"dry_run: {summary.dry_run}",
         ]
     )
 

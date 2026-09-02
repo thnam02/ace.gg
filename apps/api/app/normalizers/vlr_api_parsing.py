@@ -10,6 +10,11 @@ _DATE_RANGE = re.compile(
     r"(?P<start>[A-Za-z]{3,9}\s+\d{1,2})\s*[–\-—]\s*(?P<end>[A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})",
     re.IGNORECASE,
 )
+_SAME_MONTH_RANGE = re.compile(
+    r"(?P<month>[A-Za-z]{3,9})\s+(?P<start_day>\d{1,2})\s*[–\-—]\s*"
+    r"(?P<end_day>\d{1,2}),\s*(?P<year>20\d{2})",
+    re.IGNORECASE,
+)
 _SINGLE_DATE = re.compile(r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})")
 _YEAR = re.compile(r"\b(20\d{2})\b")
 
@@ -41,6 +46,34 @@ def as_dict(value: Any) -> dict[str, Any]:
 
 def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
+
+
+def unwrap_match_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept fixture-style match objects or live vlrggapi `{segments: [match]}`."""
+    if payload.get("match_id") is not None and payload.get("maps") is not None:
+        return payload
+    segments = payload.get("segments")
+    if isinstance(segments, list) and segments:
+        first = as_dict(segments[0])
+        if first.get("match_id") is not None or first.get("maps") is not None:
+            return first
+    return payload
+
+
+def event_match_entries(payload: dict[str, Any]) -> list[Any]:
+    matches = as_list(payload.get("matches"))
+    if matches:
+        return matches
+    segments = payload.get("segments")
+    if isinstance(segments, list):
+        return segments
+    return []
+
+
+def parse_map_team_score(value: Any) -> int | None:
+    if isinstance(value, dict):
+        return parse_optional_int(value.get("total", value.get("score")))
+    return parse_optional_int(value)
 
 
 def parse_vlr_id(value: Any) -> int | None:
@@ -89,6 +122,22 @@ def parse_date_range_text(text: str | None) -> tuple[date | None, date | None]:
     if not text:
         return None, None
     cleaned = " ".join(text.split())
+    same_month = _SAME_MONTH_RANGE.search(cleaned)
+    if same_month:
+        month = same_month.group("month")
+        year = same_month.group("year")
+        try:
+            start_date = datetime.strptime(
+                f"{month} {same_month.group('start_day')}, {year}",
+                "%b %d, %Y",
+            ).date()
+            end_date = datetime.strptime(
+                f"{month} {same_month.group('end_day')}, {year}",
+                "%b %d, %Y",
+            ).date()
+            return start_date, end_date
+        except ValueError:
+            pass
     match = _DATE_RANGE.search(cleaned)
     if match:
         end_text = match.group("end")

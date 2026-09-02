@@ -5,7 +5,15 @@ from dataclasses import dataclass, field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.metrics.context_baselines import (
+    BASELINE_HIERARCHY,
+    BaselineThresholds,
+    ContextObservation,
+    build_baseline_registry,
+    select_baseline_level,
+)
 from app.models import Event, Match, MatchMap, Player, PlayerMapStats, Team
+from app.services.context_baseline_service import observation_from_player_map_stats
 
 
 @dataclass
@@ -27,12 +35,17 @@ class DatasetAuditReport:
     missing_kast: int = 0
     missing_opening: int = 0
     missing_clutch: int = 0
+    missing_player_ids: int = 0
     unresolved_identity_count: int = 0
     context_baseline_coverage: dict[str, int] = field(default_factory=dict)
+    eligible_players_by_rounds: dict[int, int] = field(default_factory=dict)
+    rounds_per_player: dict[str, int] = field(default_factory=dict)
 
 
 class DatasetAuditService:
     """Summarize canonical PostgreSQL dataset quality."""
+
+    ROUND_THRESHOLDS: tuple[int, ...] = (100, 250, 500, 1000)
 
     def audit(self, session: Session) -> DatasetAuditReport:
         report = DatasetAuditReport(
@@ -53,14 +66,15 @@ class DatasetAuditService:
             select(PlayerMapStats)
             .options(
                 selectinload(PlayerMapStats.agent),
+                selectinload(PlayerMapStats.player),
                 selectinload(PlayerMapStats.match_map)
                 .selectinload(MatchMap.match)
                 .selectinload(Match.event),
             )
         ).all()
 
-        total = len(stats_rows)
-        context_ready = 0
+        observations: list[ContextObservation] = []
+        player_rounds: dict[str, int] = {}
         for row in stats_rows:
             role = row.agent.role if row.agent else "Unknown"
             agent_name = row.agent.name if row.agent else "Unknown"
@@ -81,6 +95,8 @@ class DatasetAuditService:
                 report.missing_opening += 1
             if row.clutch_attempts is None:
                 report.missing_clutch += 1
+            if row.player is None or row.player.vlr_player_id is None:
+                report.missing_player_ids += 1
 
             event = (
                 row.match_map.match.event
@@ -93,19 +109,18 @@ class DatasetAuditService:
                 report.observations_by_event[event.name] = (
                     report.observations_by_event.get(event.name, 0) + 1
                 )
-                if (
-                    event.tier
-                    and event.tier != "Unknown"
-                    and row.agent
-                    and row.match_map
-                    and row.match_map.map_name
-                ):
-                    context_ready += 1
 
-        report.context_baseline_coverage = {
-            "eligible_observations": context_ready,
-            "total_observations": total,
-        }
+            handle = row.player.handle if row.player else str(row.player_id)
+            player_rounds[handle] = player_rounds.get(handle, 0) + row.rounds
+            observations.append(observation_from_player_map_stats(row))
+
+        report.rounds_per_player = player_rounds
+        for threshold in self.ROUND_THRESHOLDS:
+            report.eligible_players_by_rounds[threshold] = sum(
+                1 for total in player_rounds.values() if total >= threshold
+            )
+
+        report.context_baseline_coverage = _context_coverage(observations)
         return report
 
     def format_report(self, report: DatasetAuditReport) -> str:
@@ -120,20 +135,15 @@ class DatasetAuditService:
             "",
             "observations_by_role:",
         ]
-        for key, value in sorted(report.observations_by_role.items()):
-            lines.append(f"  {key}: {value}")
+        _append_counts(lines, report.observations_by_role)
         lines.append("observations_by_agent:")
-        for key, value in sorted(report.observations_by_agent.items()):
-            lines.append(f"  {key}: {value}")
+        _append_counts(lines, report.observations_by_agent)
         lines.append("observations_by_map:")
-        for key, value in sorted(report.observations_by_map.items()):
-            lines.append(f"  {key}: {value}")
+        _append_counts(lines, report.observations_by_map)
         lines.append("observations_by_tier:")
-        for key, value in sorted(report.observations_by_tier.items()):
-            lines.append(f"  {key}: {value}")
+        _append_counts(lines, report.observations_by_tier)
         lines.append("observations_by_event:")
-        for key, value in sorted(report.observations_by_event.items()):
-            lines.append(f"  {key}: {value}")
+        _append_counts(lines, report.observations_by_event)
 
         total = report.player_map_stats or 1
         lines.extend(
@@ -147,20 +157,57 @@ class DatasetAuditService:
                     f"({_pct(report.missing_opening, total)})"
                 ),
                 f"missing_clutch: {report.missing_clutch} ({_pct(report.missing_clutch, total)})",
+                (
+                    f"missing_player_ids: {report.missing_player_ids} "
+                    f"({_pct(report.missing_player_ids, total)})"
+                ),
                 f"unresolved_identity_count: {report.unresolved_identity_count}",
                 "",
                 "context_baseline_coverage:",
-                (
-                    "  eligible_observations: "
-                    f"{report.context_baseline_coverage.get('eligible_observations', 0)}"
-                ),
-                (
-                    "  total_observations: "
-                    f"{report.context_baseline_coverage.get('total_observations', 0)}"
-                ),
             ]
         )
+        coverage_total = report.context_baseline_coverage.get("total_observations", 0) or 1
+        for key in (
+            "agent_map_tier",
+            "role_map_tier",
+            "role_tier",
+            "tier",
+            "global",
+            "total_observations",
+        ):
+            value = report.context_baseline_coverage.get(key, 0)
+            if key == "total_observations":
+                lines.append(f"  {key}: {value}")
+            else:
+                lines.append(f"  {key}: {value} ({_pct(value, coverage_total)})")
+
+        lines.append("eligible_players_by_rounds:")
+        for threshold in self.ROUND_THRESHOLDS:
+            count = report.eligible_players_by_rounds.get(threshold, 0)
+            denom = report.players or 1
+            lines.append(f"  {threshold}: {count} ({_pct(count, denom)})")
         return "\n".join(lines)
+
+
+def _context_coverage(observations: list[ContextObservation]) -> dict[str, int]:
+    coverage = {level.value: 0 for level in BASELINE_HIERARCHY}
+    coverage["total_observations"] = len(observations)
+    if not observations:
+        return coverage
+
+    registry = build_baseline_registry(observations)
+    thresholds = BaselineThresholds()
+    for observation in observations:
+        level, _ = select_baseline_level(registry, observation, thresholds)
+        coverage[level.value] = coverage.get(level.value, 0) + 1
+    return coverage
+
+
+def _append_counts(lines: list[str], counts: dict[str, int]) -> None:
+    if not counts:
+        return
+    for key, value in sorted(counts.items()):
+        lines.append(f"  {key}: {value}")
 
 
 def _pct(count: int, total: int) -> str:

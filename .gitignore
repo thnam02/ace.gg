@@ -28,3 +28,6 @@ node_modules/
 
 # Docker
 postgres_data/
+
+# Local vlrggapi raw JSON cache
+data/vlrggapi_raw/

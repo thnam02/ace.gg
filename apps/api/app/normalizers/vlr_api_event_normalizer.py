@@ -7,6 +7,7 @@ from app.normalizers.vlr_api_parsing import (
     as_dict,
     as_list,
     country_to_region,
+    event_match_entries,
     parse_date_range_text,
     parse_vlr_id,
     team_tag_from_name,
@@ -62,12 +63,19 @@ class VlrApiEventNormalizer:
 
     def _normalize_teams(self, segments: dict[str, Any]) -> list[NormalizedTeam]:
         teams: list[NormalizedTeam] = []
-        for entry in as_list(segments.get("teams")):
+        seen: set[int] = set()
+        sources = as_list(segments.get("teams"))
+        for prize in as_list(segments.get("prizes")):
+            team_row = as_dict(as_dict(prize).get("team"))
+            if team_row:
+                sources.append(team_row)
+        for entry in sources:
             row = as_dict(entry)
             team_id = parse_vlr_id(row.get("id"))
             name = str(row.get("name") or "").strip()
-            if team_id is None or not name:
+            if team_id is None or not name or team_id in seen:
                 continue
+            seen.add(team_id)
             teams.append(
                 NormalizedTeam(
                     vlr_team_id=team_id,
@@ -84,7 +92,7 @@ class VlrApiEventNormalizer:
             return []
         discovered: list[int] = []
         seen: set[int] = set()
-        for entry in as_list(event_matches_data.get("matches")):
+        for entry in event_match_entries(event_matches_data):
             row = as_dict(entry)
             match_id = parse_vlr_id(row.get("match_id"))
             if match_id is None or match_id in seen:
@@ -97,7 +105,7 @@ class VlrApiEventNormalizer:
 def _event_status(event_matches_data: dict[str, Any] | None) -> str | None:
     if event_matches_data is None:
         return None
-    matches = as_list(event_matches_data.get("matches"))
+    matches = event_match_entries(event_matches_data)
     if not matches:
         return None
     return "completed"

@@ -25,7 +25,7 @@ def ingest_json_event(
     base_url: str | None = None,
 ) -> EventIngestionSummary:
     api_url = base_url or settings.vlrggapi_base_url
-    client = create_vlrggapi_client(api_url)
+    client = create_vlrggapi_client(api_url, timeout=60.0, request_delay=1.2, max_retries=8)
     base_provider = create_vlr_api_ingestion_provider(api_url, client=client)
     provider: VlrApiIngestionProvider | CachingVlrApiIngestionProvider = base_provider
     if raw_cache_dir is not None:
