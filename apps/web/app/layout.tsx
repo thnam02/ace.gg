@@ -2,6 +2,7 @@ import { Fira_Code, Fira_Sans } from "next/font/google";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { fetchHealth } from "@/lib/api";
 import { BRAND } from "@/lib/brand";
@@ -51,9 +52,10 @@ export default async function RootLayout({
           Skip to content
         </a>
         <SiteHeader health={health} />
-        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4">
+        <main id="main" className="mx-auto w-full max-w-[1240px] flex-1 px-3 py-6 sm:px-4 sm:py-8">
           {children}
         </main>
+        <SiteFooter />
       </body>
     </html>
   );

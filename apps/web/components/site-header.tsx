@@ -13,7 +13,7 @@ type SiteHeaderProps = {
 export function SiteHeader({ health }: SiteHeaderProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-white/20 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2 sm:px-4">
+      <div className="mx-auto flex max-w-[1240px] items-center justify-between gap-3 px-3 py-2 sm:px-4">
         <Link
           href="/"
           className="flex min-w-0 items-center transition-opacity duration-200 hover:opacity-90"

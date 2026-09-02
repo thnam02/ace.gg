@@ -52,7 +52,7 @@ export function CirRankings({
   total,
   includeProvisional,
   tooltip,
-  toggleHref = { on: "/?include_provisional=1", off: "/" },
+  toggleHref = { on: "/rankings?include_provisional=1", off: "/rankings" },
   selectable = true,
   initialSelected = [],
   title = "CIR rankings",

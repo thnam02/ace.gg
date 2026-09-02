@@ -29,7 +29,7 @@ export default async function RankingsPage({ searchParams }: RankingsPageProps) 
       <AlertBanner title="Could not load CIR rankings.">
         Return to the{" "}
         <Link href="/" className="underline underline-offset-2 hover:text-accent">
-          home rankings
+          homepage
         </Link>
         .
       </AlertBanner>

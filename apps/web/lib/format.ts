@@ -65,6 +65,13 @@ export function formatCir(value: number | null | undefined): string {
   return value.toFixed(1);
 }
 
+export function formatCirOrUnavailable(value: number | null | undefined): string {
+  if (value == null) {
+    return "CIR unavailable";
+  }
+  return formatCir(value);
+}
+
 export function formatRate(value: number | null | undefined, digits = 2): string {
   if (value == null) {
     return "N/A";
