@@ -169,6 +169,10 @@ class CIRTrainingService:
         persist: bool = True,
         rebuild_ratings: bool = True,
         feature_names: tuple[str, ...] | None = None,
+        train_fraction: float = TRAIN_FRACTION,
+        validation_fraction: float = VALIDATION_FRACTION,
+        split_ids: tuple[set[UUID], set[UUID], set[UUID]] | None = None,
+        eligible_map_ids: set[UUID] | None = None,
     ) -> None:
         self._session = session
         self._stats_service = stats_service or StatsEngineService(session)
@@ -183,6 +187,10 @@ class CIRTrainingService:
         self._persist = persist
         self._rebuild_ratings = rebuild_ratings
         self._feature_names_override = feature_names
+        self._train_fraction = train_fraction
+        self._validation_fraction = validation_fraction
+        self._split_ids = split_ids
+        self._eligible_map_ids = eligible_map_ids
 
     def _select_dataset(self) -> _CirDatasetSelection:
         all_stats = self._stats_service.load_player_map_stats(None)
@@ -193,6 +201,8 @@ class CIRTrainingService:
             else all_stats
         )
         stats, unknown_excluded = _exclude_unknown_agent_maps(stats)
+        if self._eligible_map_ids is not None:
+            stats = [row for row in stats if row.match_map_id in self._eligible_map_ids]
         if not stats:
             raise ValueError("No player map stats available for CIR training")
         clutch = measure_clutch_coverage(stats, min_coverage=self._min_clutch_coverage)
@@ -225,7 +235,18 @@ class CIRTrainingService:
         all_stats = dataset.stats
 
         map_ids = _chronological_map_ids(all_stats)
-        train_ids, val_ids, test_ids = _chronological_split(map_ids)
+        if self._split_ids is not None:
+            train_ids, val_ids, test_ids = self._split_ids
+            present = set(map_ids)
+            train_ids = train_ids & present
+            val_ids = val_ids & present
+            test_ids = test_ids & present
+        else:
+            train_ids, val_ids, test_ids = _chronological_split(
+                map_ids,
+                train_fraction=self._train_fraction,
+                validation_fraction=self._validation_fraction,
+            )
         split_for_map = _split_lookup(train_ids, val_ids, test_ids)
 
         train_stats = [row for row in all_stats if row.match_map_id in train_ids]
@@ -248,7 +269,11 @@ class CIRTrainingService:
                 feature_names=dataset.feature_names,
             )
 
-        team_maps = self._build_team_maps(prepared_maps, split_for_map)
+        team_maps = self._build_team_maps(
+            prepared_maps,
+            split_for_map,
+            feature_names=dataset.feature_names,
+        )
         train_team_maps = [row for row in team_maps if row.split == "train"]
         val_team_maps = [row for row in team_maps if row.split == "validation"]
         test_team_maps = [row for row in team_maps if row.split == "test"]
@@ -442,6 +467,8 @@ class CIRTrainingService:
         tau = spec.tau if spec is not None else 0.0
 
         for stats in all_stats:
+            if stats.match_map_id not in split_for_map:
+                continue
             observation = observation_from_player_map_stats(stats)
             residual_adr = feature_engine.from_player_map_stats(stats).residual_adr
             if self._context_mode == CONTEXT_MODE_NONE:
@@ -481,6 +508,7 @@ class CIRTrainingService:
         self,
         prepared_maps: list[_PlayerMapPrepared],
         split_for_map: dict[UUID, str],
+        feature_names: tuple[str, ...] = CIR_V01_FEATURE_NAMES,
     ) -> list[_TeamMapPrepared]:
         grouped: dict[UUID, list[_PlayerMapPrepared]] = defaultdict(list)
         for row in prepared_maps:
@@ -513,6 +541,7 @@ class CIRTrainingService:
             deltas = build_team_delta_vector(
                 [row.standardized_features for row in team_a_rows],
                 [row.standardized_features for row in team_b_rows],
+                feature_names=feature_names,
             )
             team_maps.append(
                 _TeamMapPrepared(
@@ -810,12 +839,17 @@ def _chronological_map_ids(stats: list[PlayerMapStats]) -> list[UUID]:
     return sorted(grouped.keys(), key=sort_key)
 
 
-def _chronological_split(map_ids: list[UUID]) -> tuple[set[UUID], set[UUID], set[UUID]]:
+def _chronological_split(
+    map_ids: list[UUID],
+    *,
+    train_fraction: float = TRAIN_FRACTION,
+    validation_fraction: float = VALIDATION_FRACTION,
+) -> tuple[set[UUID], set[UUID], set[UUID]]:
     total = len(map_ids)
     if total == 0:
         return set(), set(), set()
-    train_end = max(1, int(total * TRAIN_FRACTION))
-    val_end = max(train_end + 1, int(total * (TRAIN_FRACTION + VALIDATION_FRACTION)))
+    train_end = max(1, int(total * train_fraction))
+    val_end = max(train_end + 1, int(total * (train_fraction + validation_fraction)))
     if total == 1:
         return {map_ids[0]}, set(), set()
     if val_end >= total:

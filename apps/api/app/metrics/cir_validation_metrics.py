@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.stats import spearmanr  # type: ignore[import-untyped]
+from scipy.stats import kendalltau, spearmanr  # type: ignore[import-untyped]
 
 
 def mae(targets: NDArray[np.float64], predictions: NDArray[np.float64]) -> float:
@@ -20,6 +20,18 @@ def spearman_correlation(
     if np.allclose(x_values, x_values[0]) or np.allclose(y_values, y_values[0]):
         return None
     result = spearmanr(x_values, y_values)
+    return float(result.correlation) if result.correlation is not None else None
+
+
+def kendall_tau_correlation(
+    x_values: NDArray[np.float64],
+    y_values: NDArray[np.float64],
+) -> float | None:
+    if len(x_values) < 2 or len(y_values) < 2:
+        return None
+    if np.allclose(x_values, x_values[0]) or np.allclose(y_values, y_values[0]):
+        return None
+    result = kendalltau(x_values, y_values)
     return float(result.correlation) if result.correlation is not None else None
 
 
