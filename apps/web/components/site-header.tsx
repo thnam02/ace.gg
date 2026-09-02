@@ -21,7 +21,7 @@ export function SiteHeader({ health }: SiteHeaderProps) {
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-1 text-sm">
           <Link
-            href="/"
+            href="/rankings"
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
           >
             <TrophyIcon className="size-3.5" aria-hidden="true" />

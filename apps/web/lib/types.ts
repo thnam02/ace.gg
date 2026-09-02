@@ -143,6 +143,8 @@ export type CirRankingPlayer = {
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  tier: string | null;
+  region: string | null;
   primary_agent: string | null;
   cir: number | null;
   reliability: string | null;

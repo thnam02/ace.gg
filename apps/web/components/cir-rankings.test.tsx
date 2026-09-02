@@ -38,6 +38,8 @@ function player(index: number): CirRankingPlayer {
       region: "NA",
     },
     role: "duelist",
+    tier: "T1",
+    region: "Americas",
     primary_agent: null,
     cir: 90,
     reliability: "high",
@@ -65,5 +67,23 @@ describe("CirRankings pagination", () => {
     expect(html).toContain('aria-label="Page 2"');
     expect(html).toContain("Player50");
     expect(html).not.toContain("Player51");
+  });
+
+  it("renders the filter and sort bar", () => {
+    const html = renderToStaticMarkup(
+      <CirRankings
+        players={[player(1)]}
+        includeProvisional={false}
+        tooltip="CIR"
+      />,
+    );
+    expect(html).toContain(">Search<");
+    expect(html).toContain(">Tier<");
+    expect(html).toContain(">Region<");
+    expect(html).toContain(">Role<");
+    expect(html).toContain(">Sort by<");
+    expect(html).toContain(">Order<");
+    expect(html).toContain("Include provisional");
+    expect(html).toContain(">Reset<");
   });
 });

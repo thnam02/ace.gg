@@ -6,7 +6,22 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowsLeftRightIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
 import { compareHref } from "@/lib/compare";
-import { formatCir, formatRounds } from "@/lib/format";
+import { formatCir, formatRate, formatRounds } from "@/lib/format";
+import {
+  DEFAULT_RANKING_FILTERS,
+  RANKING_REGIONS,
+  RANKING_ROLES,
+  RANKING_SORT_KEYS,
+  RANKING_SORT_LABELS,
+  RANKING_SORT_ORDERS,
+  RANKING_TIERS,
+  applyRankingExplore,
+  defaultOrderForSort,
+  rankingFiltersActive,
+  type RankingExploreFilters,
+  type RankingSortKey,
+  type RankingSortOrder,
+} from "@/lib/ranking-filters";
 import {
   rankingPageBounds,
   rankingPageTokens,
@@ -24,6 +39,9 @@ type CirRankingsProps = {
   title?: string;
 };
 
+const controlClass =
+  "rounded-md border border-white/10 bg-muted/60 px-2 py-1 text-xs text-foreground";
+
 export function CirRankings({
   players,
   total,
@@ -37,7 +55,7 @@ export function CirRankings({
   const router = useRouter();
   const tableTopRef = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<string[]>(initialSelected);
-  const [query, setQuery] = useState("");
+  const [filters, setFilters] = useState<RankingExploreFilters>(DEFAULT_RANKING_FILTERS);
   const [page, setPage] = useState(1);
   const [pageScope, setPageScope] = useState(includeProvisional);
   if (includeProvisional !== pageScope) {
@@ -45,23 +63,29 @@ export function CirRankings({
     setPage(1);
   }
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) {
-      return players;
-    }
-    return players.filter((player) => {
-      const team = `${player.team?.tag ?? ""} ${player.team?.name ?? ""}`.toLowerCase();
-      return (
-        player.handle.toLowerCase().includes(needle) ||
-        team.includes(needle) ||
-        (player.role ?? "").toLowerCase().includes(needle)
-      );
-    });
-  }, [players, query]);
+  const filtered = useMemo(
+    () => applyRankingExplore(players, filters),
+    [filters, players],
+  );
   const bounds = rankingPageBounds(filtered.length, page);
   const pagePlayers = filtered.slice(bounds.start, bounds.end);
   const pageTokens = rankingPageTokens(bounds.safePage, bounds.totalPages);
+  const filtersActive = rankingFiltersActive(filters);
+  const canReset = filtersActive || includeProvisional;
+  const columnCount = selectable ? 10 : 9;
+
+  function updateFilters(patch: Partial<RankingExploreFilters>) {
+    setFilters((current) => ({ ...current, ...patch }));
+    setPage(1);
+  }
+
+  function resetFilters() {
+    setFilters(DEFAULT_RANKING_FILTERS);
+    setPage(1);
+    if (includeProvisional) {
+      router.replace(toggleHref.off, { scroll: false });
+    }
+  }
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -101,42 +125,139 @@ export function CirRankings({
         <h2 className="text-sm font-medium text-foreground">
           {title}
           <span className="ml-2 font-sans text-xs font-normal text-muted-foreground">
-            {query.trim()
+            {filtersActive
               ? `${filtered.length} of ${players.length}`
               : total != null && total > players.length
                 ? `${players.length} of ${total}`
                 : `${players.length} players`}
           </span>
         </h2>
-        <div className="flex flex-wrap items-center gap-2">
+        {selectable ? (
+          <button
+            type="button"
+            onClick={openCompare}
+            disabled={selected.length < 2}
+            className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ArrowsLeftRightIcon className="size-3.5" aria-hidden="true" />
+            Compare {selected.length > 0 ? `(${selected.length})` : ""}
+          </button>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-end gap-2 border-b border-white/10 px-3 py-2">
+        <FilterField label="Search" htmlFor="ranking-search">
           <input
+            id="ranking-search"
             type="search"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(1);
-            }}
-            placeholder="Search handle or team"
-            aria-label="Search CIR players"
-            className="w-44 rounded-md border border-white/10 bg-muted/60 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground"
+            value={filters.query}
+            onChange={(event) => updateFilters({ query: event.target.value })}
+            placeholder="Handle or team"
+            className={`${controlClass} w-44 placeholder:text-muted-foreground`}
           />
+        </FilterField>
+        <FilterField label="Tier" htmlFor="ranking-tier">
+          <select
+            id="ranking-tier"
+            value={filters.tier ?? ""}
+            onChange={(event) => updateFilters({ tier: event.target.value || null })}
+            className={controlClass}
+          >
+            <option value="">All</option>
+            {RANKING_TIERS.map((tier) => (
+              <option key={tier} value={tier}>
+                {tier}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="Region" htmlFor="ranking-region">
+          <select
+            id="ranking-region"
+            value={filters.region ?? ""}
+            onChange={(event) =>
+              updateFilters({ region: event.target.value || null })
+            }
+            className={controlClass}
+          >
+            <option value="">All</option>
+            {RANKING_REGIONS.map((region) => (
+              <option key={region} value={region}>
+                {region}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="Role" htmlFor="ranking-role">
+          <select
+            id="ranking-role"
+            value={filters.role ?? ""}
+            onChange={(event) => updateFilters({ role: event.target.value || null })}
+            className={controlClass}
+          >
+            <option value="">All</option>
+            {RANKING_ROLES.map((role) => (
+              <option key={role} value={role}>
+                {role}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="Sort by" htmlFor="ranking-sort">
+          <select
+            id="ranking-sort"
+            value={filters.sort}
+            onChange={(event) => {
+              const sort = event.target.value as RankingSortKey;
+              updateFilters({ sort, order: defaultOrderForSort(sort) });
+            }}
+            className={controlClass}
+          >
+            {RANKING_SORT_KEYS.map((key) => (
+              <option key={key} value={key}>
+                {RANKING_SORT_LABELS[key]}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="Order" htmlFor="ranking-order">
+          <select
+            id="ranking-order"
+            value={filters.order}
+            onChange={(event) =>
+              updateFilters({ order: event.target.value as RankingSortOrder })
+            }
+            className={controlClass}
+          >
+            {RANKING_SORT_ORDERS.map((order) => (
+              <option key={order} value={order}>
+                {order === "desc" ? "High to low" : "Low to high"}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <div className="grid gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Include provisional
+          </span>
           <Link
             href={includeProvisional ? toggleHref.off : toggleHref.on}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
+            className={`${controlClass} inline-flex items-center text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground`}
           >
-            {includeProvisional ? "Established only" : "Include provisional"}
+            {includeProvisional ? "On" : "Off"}
           </Link>
-          {selectable ? (
-            <button
-              type="button"
-              onClick={openCompare}
-              disabled={selected.length < 2}
-              className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ArrowsLeftRightIcon className="size-3.5" aria-hidden="true" />
-              Compare {selected.length > 0 ? `(${selected.length})` : ""}
-            </button>
-          ) : null}
+        </div>
+        <div className="grid gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Reset
+          </span>
+          <button
+            type="button"
+            onClick={resetFilters}
+            disabled={!canReset}
+            className={`${controlClass} text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-muted/60`}
+          >
+            Reset
+          </button>
         </div>
       </div>
       {selectable && selected.length === 1 ? (
@@ -150,7 +271,7 @@ export function CirRankings({
         </p>
       ) : null}
       <div className="overflow-x-auto">
-        <table className="min-w-[720px] w-full border-collapse text-left text-sm">
+        <table className="min-w-[880px] w-full border-collapse text-left text-sm">
           <caption className="sr-only">CIR player rankings</caption>
           <thead className="bg-muted/60 text-[11px] uppercase tracking-wide text-muted-foreground">
             <tr>
@@ -179,6 +300,12 @@ export function CirRankings({
                 CIR
               </th>
               <th scope="col" className="px-3 py-2 font-medium text-right">
+                KPR
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium text-right">
+                DPR
+              </th>
+              <th scope="col" className="px-3 py-2 font-medium text-right">
                 Reliability
               </th>
               <th scope="col" className="px-3 py-2 font-medium text-right">
@@ -190,10 +317,11 @@ export function CirRankings({
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={selectable ? 8 : 7}
+                  colSpan={columnCount}
                   className="px-3 py-6 text-center text-sm text-muted-foreground"
                 >
-                  No CIR players match this search.
+                  No CIR players match these filters. Reset to see the full ranking
+                  pool.
                 </td>
               </tr>
             ) : (
@@ -230,14 +358,28 @@ export function CirRankings({
                       </Link>
                     </td>
                     <td className="px-3 py-1.5 text-muted-foreground">
-                      {player.team?.tag ?? "—"}
+                      <span>{player.team?.tag ?? "—"}</span>
+                      {player.region ? (
+                        <span className="block text-[11px]">{player.region}</span>
+                      ) : null}
                     </td>
-                    <td className="px-3 py-1.5 text-muted-foreground">{player.role ?? "—"}</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">
+                      <span>{player.role ?? "—"}</span>
+                      {player.tier ? (
+                        <span className="block text-[11px]">{player.tier}</span>
+                      ) : null}
+                    </td>
                     <td
                       className="px-3 py-1.5 text-right font-mono text-base font-semibold tabular-nums text-accent"
                       title={tooltip}
                     >
                       {formatCir(player.cir)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                      {formatRate(player.kpr)}
+                    </td>
+                    <td className="px-3 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                      {formatRate(player.dpr)}
                     </td>
                     <td className="px-3 py-1.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
                       {player.reliability ?? "—"}
@@ -302,6 +444,23 @@ export function CirRankings({
         </nav>
       ) : null}
     </section>
+  );
+}
+
+type FilterFieldProps = {
+  label: string;
+  htmlFor: string;
+  children: ReactNode;
+};
+
+function FilterField({ label, htmlFor, children }: FilterFieldProps) {
+  return (
+    <label htmlFor={htmlFor} className="grid gap-1">
+      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
   );
 }
 

@@ -16,7 +16,19 @@ from app.metrics.cir.config import (
     SHRINKAGE_K,
     SampleStatus,
 )
-from app.models import MetricVersion, Player, PlayerMetricSnapshot, PlayerTeamHistory, Team
+from app.metrics.cir.ranking_explore import (
+    event_ranking_region,
+    pick_ranking_region,
+    snapshot_event_ids,
+)
+from app.models import (
+    Event,
+    MetricVersion,
+    Player,
+    PlayerMetricSnapshot,
+    PlayerTeamHistory,
+    Team,
+)
 from app.schemas.cir_ranking import (
     CirCompareEntry,
     CirCompareResponse,
@@ -118,6 +130,7 @@ class CirRankingService:
         )
         total = len(filtered)
         page = filtered[offset : offset + limit]
+        event_regions = self._event_region_lookup(page)
         players = [
             _to_ranking_player(
                 rank=offset + index + 1,
@@ -125,6 +138,7 @@ class CirRankingService:
                 player=player,
                 team=team_row,
                 version=version,
+                event_regions=event_regions,
             )
             for index, (snapshot, player, team_row) in enumerate(page)
         ]
@@ -380,6 +394,20 @@ class CirRankingService:
             .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
         )
 
+    def _event_region_lookup(
+        self,
+        rows: list[tuple[PlayerMetricSnapshot, Player, Team | None]],
+    ) -> dict[UUID, str | None]:
+        ids: set[UUID] = set()
+        for snapshot, _player, _team in rows:
+            ids.update(snapshot_event_ids(snapshot.details or {}))
+        if not ids:
+            return {}
+        events = self._session.scalars(select(Event).where(Event.id.in_(ids))).all()
+        return {
+            event.id: event_ranking_region(region=event.region, name=event.name) for event in events
+        }
+
     def _rank_lookup(self, metric_version_id: UUID) -> dict[UUID, int]:
         rows = list(
             self._session.execute(
@@ -463,14 +491,22 @@ def _to_ranking_player(
     player: Player,
     team: Team | None,
     version: MetricVersion,
+    event_regions: dict[UUID, str | None],
 ) -> CirRankingPlayer:
     details = snapshot.details or {}
+    team_ref = _team_ref(player, team)
+    region = pick_ranking_region(
+        team_region=team_ref.region if team_ref is not None else None,
+        event_regions=[event_regions.get(event_id) for event_id in snapshot_event_ids(details)],
+    )
     return CirRankingPlayer(
         rank=rank,
         player_id=str(player.id),
         handle=player.handle,
-        team=_team_ref(player, team),
+        team=team_ref,
         role=_detail_str(details, "role"),
+        tier=_detail_str(details, "tier"),
+        region=region,
         primary_agent=_detail_str(details, "primary_agent"),
         cir=snapshot.cir,
         reliability=snapshot.reliability,

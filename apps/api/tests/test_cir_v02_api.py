@@ -115,6 +115,9 @@ def test_rankings_default_to_established(client: TestClient, db_session: Session
     assert payload["players"][0]["rank"] == 1
     assert payload["players"][0]["cir"] == 92.0
     assert payload["players"][0]["sample_status"] == "ESTABLISHED"
+    assert payload["players"][0]["tier"] == "T1"
+    assert payload["players"][0]["role"] == "Duelist"
+    assert payload["players"][0]["region"] == "Americas"
 
 
 def test_rankings_include_provisional_and_pagination(

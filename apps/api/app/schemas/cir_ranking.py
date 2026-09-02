@@ -16,6 +16,8 @@ class CirRankingPlayer(BaseModel):
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    tier: str | None = None
+    region: str | None = None
     primary_agent: str | None = None
     cir: float | None = None
     reliability: str | None = None
