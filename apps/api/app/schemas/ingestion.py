@@ -31,6 +31,23 @@ class NormalizedEvent(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     season_year: int | None = None
+    status: str | None = None
+
+
+class NormalizedEventPageData(BaseModel):
+    event: NormalizedEvent
+    participating_teams: list[NormalizedTeam] = Field(default_factory=list)
+    match_ids: list[int] = Field(default_factory=list)
+
+
+class EventIngestionSummary(BaseModel):
+    event_id: int
+    matches_discovered: int
+    matches_ingested: int
+    matches_skipped: int
+    matches_failed: int
+    player_map_stats_created: int
+    errors: list[str] = Field(default_factory=list)
 
 
 class NormalizedPlayerMapStats(BaseModel):

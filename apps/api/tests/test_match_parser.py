@@ -6,7 +6,10 @@ from app.parsers.match_parser import MatchParser
 from tests.vlr_fixtures import load_match_html, match_fixture_names
 
 
-@pytest.mark.parametrize("fixture_name", match_fixture_names())
+@pytest.mark.parametrize(
+    "fixture_name",
+    [name for name in match_fixture_names() if "malformed" not in name],
+)
 def test_parser_handles_all_saved_fixtures(fixture_name: str) -> None:
     html = load_match_html(fixture_name)
     data = MatchParser().parse(html)

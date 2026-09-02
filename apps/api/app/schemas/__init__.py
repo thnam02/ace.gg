@@ -1,7 +1,9 @@
 from app.schemas.health import HealthResponse
 from app.schemas.ingestion import (
+    EventIngestionSummary,
     NormalizedAgent,
     NormalizedEvent,
+    NormalizedEventPageData,
     NormalizedMatchData,
     NormalizedMatchMap,
     NormalizedPlayer,
@@ -12,8 +14,10 @@ from app.schemas.player import PlayerComparison, PlayerProfile, PlayerStats
 
 __all__ = [
     "HealthResponse",
+    "EventIngestionSummary",
     "NormalizedAgent",
     "NormalizedEvent",
+    "NormalizedEventPageData",
     "NormalizedMatchData",
     "NormalizedMatchMap",
     "NormalizedPlayer",

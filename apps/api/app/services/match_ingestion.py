@@ -40,13 +40,26 @@ class MatchIngestionService:
             self._session.add(event)
 
         event.name = data.name
-        event.region = data.region
-        event.tier = data.tier
-        event.start_date = data.start_date
-        event.end_date = data.end_date
-        event.season_year = data.season_year
+        if data.region is not None:
+            event.region = data.region
+        if data.tier is not None:
+            event.tier = data.tier
+        if data.start_date is not None:
+            event.start_date = data.start_date
+        if data.end_date is not None:
+            event.end_date = data.end_date
+        if data.season_year is not None:
+            event.season_year = data.season_year
+        if data.status is not None:
+            event.status = data.status
         self._session.flush()
         return event
+
+    def upsert_event(self, data: NormalizedEvent) -> Event:
+        return self._upsert_event(data)
+
+    def upsert_team(self, data: NormalizedTeam) -> Team:
+        return self._upsert_team(data)
 
     def _upsert_team(self, data: NormalizedTeam) -> Team:
         team = self._session.scalar(select(Team).where(Team.vlr_team_id == data.vlr_team_id))
