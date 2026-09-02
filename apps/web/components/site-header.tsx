@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowsLeftRightIcon, PulseIcon, UsersIcon } from "@phosphor-icons/react/dist/ssr";
+import { ArrowsLeftRightIcon, PulseIcon, TrophyIcon } from "@phosphor-icons/react/dist/ssr";
 
 import { StatusBadge } from "@/components/status-badge";
 import type { HealthResponse } from "@/lib/types";
@@ -24,8 +24,8 @@ export function SiteHeader({ health }: SiteHeaderProps) {
             href="/"
             className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground"
           >
-            <UsersIcon className="size-3.5" aria-hidden="true" />
-            Roster
+            <TrophyIcon className="size-3.5" aria-hidden="true" />
+            Rankings
           </Link>
           <Link
             href="/compare"

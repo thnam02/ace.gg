@@ -16,7 +16,7 @@ export default function ErrorPage({
 
   return (
     <AlertBanner title="This page failed to load.">
-      <p>Retry the request, or return to the roster if the problem continues.</p>
+      <p>Retry the request, or return to rankings if the problem continues.</p>
       <button
         type="button"
         onClick={reset}

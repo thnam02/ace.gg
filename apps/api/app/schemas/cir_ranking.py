@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+from app.schemas.player_api import TeamRef
+
+
+class CirReliability(BaseModel):
+    label: str
+    pct: float | None = None
+
+
+class CirRankingPlayer(BaseModel):
+    rank: int
+    player_id: str
+    handle: str
+    team: TeamRef | None = None
+    role: str | None = None
+    primary_agent: str | None = None
+    cir: float | None = None
+    reliability: str | None = None
+    reliability_pct: float | None = None
+    rounds: int = 0
+    maps: int = 0
+    kpr: float | None = None
+    dpr: float | None = None
+    sample_status: str | None = None
+    metric_version: str
+    metric_version_id: str
+
+
+class CirRankingResponse(BaseModel):
+    metric_name: str
+    metric_version: str
+    metric_version_id: str
+    total: int
+    limit: int
+    offset: int
+    players: list[CirRankingPlayer] = Field(default_factory=list)
+
+
+class CirPlayerDetail(BaseModel):
+    player_id: str
+    handle: str
+    team: TeamRef | None = None
+    role: str | None = None
+    cir: float | None = None
+    raw_cir: float | None = None
+    shrunk_raw_cir: float | None = None
+    reliability: str | None = None
+    reliability_pct: float | None = None
+    sample_status: str | None = None
+    rounds: int = 0
+    maps: int = 0
+    events: int = 0
+    combat_factor: float | None = None
+    kpr: float | None = None
+    dpr: float | None = None
+    expected_kpr: float | None = None
+    expected_dpr: float | None = None
+    kpr_residual: float | None = None
+    negative_dpr_residual: float | None = None
+    sample_weight: float | None = None
+    metric_version: str
+    metric_version_id: str
+    reference_period_start: str | None = None
+    reference_period_end: str | None = None
+    interpretation: str | None = None
+
+
+class CirCompareEntry(BaseModel):
+    player_id: str
+    handle: str
+    team: TeamRef | None = None
+    role: str | None = None
+    cir: float | None = None
+    rank: int | None = None
+    reliability: str | None = None
+    rounds: int = 0
+    maps: int = 0
+    kpr: float | None = None
+    expected_kpr: float | None = None
+    kpr_residual: float | None = None
+    dpr: float | None = None
+    expected_dpr: float | None = None
+    negative_dpr_residual: float | None = None
+    combat_factor: float | None = None
+    sample_status: str | None = None
+    metric_version: str | None = None
+
+
+class CirCompareResponse(BaseModel):
+    players: list[CirCompareEntry] = Field(default_factory=list)
+    notes: str = ""
+
+
+class CirMetricMetadata(BaseModel):
+    name: str
+    version: str
+    status: str
+    description: str
+    tooltip: str
+    interpretation: str
+    features: list[str]
+    context: str
+    scale: str
+    established_sample: int
+    provisional_sample: str
+    low_sample: str
+    shrinkage_k: float
+    reference_period_start: str | None = None
+    reference_period_end: str | None = None

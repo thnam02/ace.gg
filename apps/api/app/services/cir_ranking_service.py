@@ -1,0 +1,417 @@
+from __future__ import annotations
+
+from uuid import UUID
+
+from sqlalchemy import Select, func, or_, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.metrics.cir.config import (
+    CIR_NAME,
+    CIR_V02_VERSION,
+    ESTABLISHED_ROUNDS,
+    LOW_SAMPLE_ROUNDS,
+    PUBLIC_DESCRIPTION,
+    PUBLIC_INTERPRETATION,
+    PUBLIC_TOOLTIP,
+    SHRINKAGE_K,
+    SampleStatus,
+)
+from app.models import MetricVersion, Player, PlayerMetricSnapshot, PlayerTeamHistory, Team
+from app.schemas.cir_ranking import (
+    CirCompareEntry,
+    CirCompareResponse,
+    CirMetricMetadata,
+    CirPlayerDetail,
+    CirRankingPlayer,
+    CirRankingResponse,
+)
+from app.schemas.player_api import PlayerCompareCir, TeamRef
+from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
+from app.services.player_query import PlayerNotFoundError, PlayerQueryService
+
+
+class CirRankingService:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+        self._players = PlayerQueryService(session)
+
+    def resolve_metric_version(
+        self,
+        *,
+        metric_version: str | None = None,
+        metric_version_id: UUID | None = None,
+    ) -> MetricVersion:
+        if metric_version_id is not None:
+            row = self._session.get(MetricVersion, metric_version_id)
+            if row is None:
+                raise ValueError("Metric version not found")
+            return row
+        if metric_version:
+            row = self._session.scalar(
+                select(MetricVersion).where(
+                    MetricVersion.name == CIR_NAME,
+                    MetricVersion.version == metric_version,
+                )
+            )
+            if row is None:
+                raise ValueError(f"Unknown CIR version {metric_version}")
+            return row
+        production = production_metric_version(self._session)
+        if production is not None:
+            return production
+        frozen = load_frozen_cir_v02(self._session, version=CIR_V02_VERSION)
+        if frozen is not None:
+            return frozen.metric_version
+        raise ValueError("No production CIR MetricVersion is available")
+
+    def list_rankings(
+        self,
+        *,
+        metric_version: str | None = None,
+        role: str | None = None,
+        tier: str | None = None,
+        team: str | None = None,
+        region: str | None = None,
+        agent: str | None = None,
+        event: str | None = None,
+        min_rounds: int | None = None,
+        include_provisional: bool = False,
+        include_low_sample: bool = False,
+        sample_status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> CirRankingResponse:
+        version = self.resolve_metric_version(metric_version=metric_version)
+        statuses = _allowed_statuses(
+            include_provisional=include_provisional,
+            include_low_sample=include_low_sample,
+            sample_status=sample_status,
+        )
+        query = self._base_query(version.id).where(PlayerMetricSnapshot.sample_status.in_(statuses))
+        if min_rounds is not None:
+            query = query.where(PlayerMetricSnapshot.rounds >= min_rounds)
+        if team:
+            team_uuid = _as_uuid(team)
+            if team_uuid is not None:
+                query = query.where(Team.id == team_uuid)
+            else:
+                query = query.where(or_(Team.tag.ilike(team), Team.name.ilike(team)))
+        if region:
+            query = query.where(func.lower(Team.region) == region.lower())
+
+        rows = list(self._session.execute(query).unique().all())
+        filtered = [
+            (snapshot, player, team_row)
+            for snapshot, player, team_row in rows
+            if _matches_details(snapshot, role=role, tier=tier, agent=agent, event=event)
+        ]
+        filtered.sort(
+            key=lambda item: (
+                -(item[0].cir or 0.0),
+                -item[0].rounds,
+                item[1].handle.lower(),
+            )
+        )
+        total = len(filtered)
+        page = filtered[offset : offset + limit]
+        players = [
+            _to_ranking_player(
+                rank=offset + index + 1,
+                snapshot=snapshot,
+                player=player,
+                team=team_row,
+                version=version,
+            )
+            for index, (snapshot, player, team_row) in enumerate(page)
+        ]
+        return CirRankingResponse(
+            metric_name=version.name,
+            metric_version=version.version,
+            metric_version_id=str(version.id),
+            total=total,
+            limit=limit,
+            offset=offset,
+            players=players,
+        )
+
+    def player_cir(self, player_ref: str, *, metric_version: str | None = None) -> CirPlayerDetail:
+        player = self._players._require_player(player_ref)
+        version = self.resolve_metric_version(metric_version=metric_version)
+        snapshot = self._session.scalar(
+            select(PlayerMetricSnapshot).where(
+                PlayerMetricSnapshot.metric_version_id == version.id,
+                PlayerMetricSnapshot.player_id == player.id,
+            )
+        )
+        if snapshot is None:
+            raise PlayerNotFoundError(player_ref)
+        details = snapshot.details or {}
+        identity = self._players._to_identity(player)
+        return CirPlayerDetail(
+            player_id=str(player.id),
+            handle=player.handle,
+            team=identity.team,
+            role=_detail_str(details, "role"),
+            cir=snapshot.cir,
+            raw_cir=snapshot.raw_cir,
+            shrunk_raw_cir=snapshot.shrunk_raw_cir,
+            reliability=snapshot.reliability,
+            reliability_pct=_detail_float(details, "reliability_pct"),
+            sample_status=snapshot.sample_status,
+            rounds=snapshot.rounds,
+            maps=snapshot.maps_played,
+            events=snapshot.events_played,
+            combat_factor=snapshot.combat_component,
+            kpr=_detail_float(details, "kpr"),
+            dpr=_detail_float(details, "dpr"),
+            expected_kpr=_detail_float(details, "expected_kpr"),
+            expected_dpr=_detail_float(details, "expected_dpr"),
+            kpr_residual=_detail_float(details, "kpr_residual"),
+            negative_dpr_residual=_detail_float(details, "negative_dpr_residual"),
+            sample_weight=snapshot.sample_weight,
+            metric_version=version.version,
+            metric_version_id=str(version.id),
+            reference_period_start=(
+                version.training_start.isoformat() if version.training_start else None
+            ),
+            reference_period_end=version.training_end.isoformat() if version.training_end else None,
+            interpretation=PUBLIC_INTERPRETATION,
+        )
+
+    def compare(
+        self,
+        player_refs: list[str],
+        *,
+        metric_version: str | None = None,
+    ) -> CirCompareResponse:
+        version = self.resolve_metric_version(metric_version=metric_version)
+        entries: list[CirCompareEntry] = []
+        ranks = self._rank_lookup(version.id)
+        for ref in player_refs:
+            player = self._players._require_player(ref)
+            snapshot = self._session.scalar(
+                select(PlayerMetricSnapshot).where(
+                    PlayerMetricSnapshot.metric_version_id == version.id,
+                    PlayerMetricSnapshot.player_id == player.id,
+                )
+            )
+            identity = self._players._to_identity(player)
+            details = snapshot.details if snapshot is not None else {}
+            entries.append(
+                CirCompareEntry(
+                    player_id=str(player.id),
+                    handle=player.handle,
+                    team=identity.team,
+                    role=_detail_str(details, "role") if details else None,
+                    cir=snapshot.cir if snapshot is not None else None,
+                    rank=ranks.get(player.id),
+                    reliability=snapshot.reliability if snapshot is not None else None,
+                    rounds=snapshot.rounds if snapshot is not None else 0,
+                    maps=snapshot.maps_played if snapshot is not None else 0,
+                    kpr=_detail_float(details, "kpr") if details else None,
+                    expected_kpr=_detail_float(details, "expected_kpr") if details else None,
+                    kpr_residual=_detail_float(details, "kpr_residual") if details else None,
+                    dpr=_detail_float(details, "dpr") if details else None,
+                    expected_dpr=_detail_float(details, "expected_dpr") if details else None,
+                    negative_dpr_residual=(
+                        _detail_float(details, "negative_dpr_residual") if details else None
+                    ),
+                    combat_factor=snapshot.combat_component if snapshot is not None else None,
+                    sample_status=snapshot.sample_status if snapshot is not None else None,
+                    metric_version=version.version,
+                )
+            )
+        return CirCompareResponse(
+            players=entries,
+            notes="CIR inputs are context-adjusted combat only. Other stats are descriptive.",
+        )
+
+    def compare_block(self, player_id: UUID, *, version: MetricVersion) -> PlayerCompareCir | None:
+        snapshot = self._session.scalar(
+            select(PlayerMetricSnapshot).where(
+                PlayerMetricSnapshot.metric_version_id == version.id,
+                PlayerMetricSnapshot.player_id == player_id,
+            )
+        )
+        if snapshot is None:
+            return None
+        details = snapshot.details or {}
+        ranks = self._rank_lookup(version.id)
+        return PlayerCompareCir(
+            cir=snapshot.cir,
+            rank=ranks.get(player_id),
+            reliability=snapshot.reliability,
+            rounds=snapshot.rounds,
+            maps=snapshot.maps_played,
+            kpr=_detail_float(details, "kpr"),
+            expected_kpr=_detail_float(details, "expected_kpr"),
+            kpr_residual=_detail_float(details, "kpr_residual"),
+            dpr=_detail_float(details, "dpr"),
+            expected_dpr=_detail_float(details, "expected_dpr"),
+            negative_dpr_residual=_detail_float(details, "negative_dpr_residual"),
+            combat_factor=snapshot.combat_component,
+            sample_status=snapshot.sample_status,
+            metric_version=version.version,
+        )
+
+    def metadata(self, *, metric_version: str | None = None) -> CirMetricMetadata:
+        version = self.resolve_metric_version(metric_version=metric_version)
+        return CirMetricMetadata(
+            name=version.name,
+            version=version.version,
+            status=version.status,
+            description=PUBLIC_DESCRIPTION,
+            tooltip=PUBLIC_TOOLTIP,
+            interpretation=PUBLIC_INTERPRETATION,
+            features=["context-adjusted KPR", "context-adjusted death avoidance"],
+            context="role + competitive tier",
+            scale="0–100 percentile",
+            established_sample=ESTABLISHED_ROUNDS,
+            provisional_sample=f"{LOW_SAMPLE_ROUNDS}–{ESTABLISHED_ROUNDS - 1} rounds",
+            low_sample=f"<{LOW_SAMPLE_ROUNDS} rounds",
+            shrinkage_k=SHRINKAGE_K,
+            reference_period_start=(
+                version.training_start.isoformat() if version.training_start else None
+            ),
+            reference_period_end=version.training_end.isoformat() if version.training_end else None,
+        )
+
+    def _base_query(
+        self, metric_version_id: UUID
+    ) -> Select[tuple[PlayerMetricSnapshot, Player, Team]]:
+        current_team = (
+            select(PlayerTeamHistory.team_id)
+            .where(
+                PlayerTeamHistory.player_id == Player.id,
+                PlayerTeamHistory.is_current.is_(True),
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
+        return (
+            select(PlayerMetricSnapshot, Player, Team)
+            .join(Player, Player.id == PlayerMetricSnapshot.player_id)
+            .outerjoin(Team, Team.id == current_team)
+            .where(PlayerMetricSnapshot.metric_version_id == metric_version_id)
+            .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
+        )
+
+    def _rank_lookup(self, metric_version_id: UUID) -> dict[UUID, int]:
+        rows = list(
+            self._session.execute(
+                select(PlayerMetricSnapshot, Player)
+                .join(Player, Player.id == PlayerMetricSnapshot.player_id)
+                .where(
+                    PlayerMetricSnapshot.metric_version_id == metric_version_id,
+                    PlayerMetricSnapshot.sample_status == SampleStatus.ESTABLISHED.value,
+                )
+            ).all()
+        )
+        rows.sort(key=lambda item: (-(item[0].cir or 0.0), -item[0].rounds, item[1].handle.lower()))
+        return {snapshot.player_id: index + 1 for index, (snapshot, _player) in enumerate(rows)}
+
+
+def _allowed_statuses(
+    *,
+    include_provisional: bool,
+    include_low_sample: bool,
+    sample_status: str | None,
+) -> list[str]:
+    if sample_status:
+        return [sample_status]
+    statuses = [SampleStatus.ESTABLISHED.value]
+    if include_provisional:
+        statuses.append(SampleStatus.PROVISIONAL.value)
+    if include_low_sample:
+        statuses.append(SampleStatus.LOW_SAMPLE.value)
+    return statuses
+
+
+def _matches_details(
+    snapshot: PlayerMetricSnapshot,
+    *,
+    role: str | None,
+    tier: str | None,
+    agent: str | None,
+    event: str | None,
+) -> bool:
+    details = snapshot.details or {}
+    if role and str(details.get("role") or "").lower() != role.lower():
+        return False
+    if tier and str(details.get("tier") or "").lower() != tier.lower():
+        return False
+    if agent and str(details.get("primary_agent") or "").lower() != agent.lower():
+        return False
+    if event:
+        event_ids = {str(value) for value in details.get("event_ids") or []}
+        vlr_ids = {str(value) for value in details.get("vlr_event_ids") or []}
+        if event not in event_ids and event not in vlr_ids:
+            return False
+    return True
+
+
+def _to_ranking_player(
+    *,
+    rank: int,
+    snapshot: PlayerMetricSnapshot,
+    player: Player,
+    team: Team | None,
+    version: MetricVersion,
+) -> CirRankingPlayer:
+    details = snapshot.details or {}
+    team_ref = None
+    if team is not None:
+        team_ref = TeamRef(
+            id=str(team.id),
+            vlr_team_id=team.vlr_team_id,
+            name=team.name,
+            tag=team.tag,
+            region=team.region,
+        )
+    elif player.team_history:
+        current = next((entry for entry in player.team_history if entry.is_current), None)
+        if current is not None:
+            team_ref = TeamRef(
+                id=str(current.team.id),
+                vlr_team_id=current.team.vlr_team_id,
+                name=current.team.name,
+                tag=current.team.tag,
+                region=current.team.region,
+            )
+    return CirRankingPlayer(
+        rank=rank,
+        player_id=str(player.id),
+        handle=player.handle,
+        team=team_ref,
+        role=_detail_str(details, "role"),
+        primary_agent=_detail_str(details, "primary_agent"),
+        cir=snapshot.cir,
+        reliability=snapshot.reliability,
+        reliability_pct=_detail_float(details, "reliability_pct"),
+        rounds=snapshot.rounds,
+        maps=snapshot.maps_played,
+        kpr=_detail_float(details, "kpr"),
+        dpr=_detail_float(details, "dpr"),
+        sample_status=snapshot.sample_status,
+        metric_version=version.version,
+        metric_version_id=str(version.id),
+    )
+
+
+def _detail_str(details: dict[str, object], key: str) -> str | None:
+    value = details.get(key)
+    return str(value) if value is not None else None
+
+
+def _detail_float(details: dict[str, object], key: str) -> float | None:
+    value = details.get(key)
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _as_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        return None

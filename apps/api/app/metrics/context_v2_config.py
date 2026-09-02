@@ -122,7 +122,7 @@ def default_context_experiment_matrix() -> dict[str, ContextExperimentSpec]:
 
 
 def recommended_context_v2_spec() -> ContextExperimentSpec:
-    """Context v2 settings selected after the context experiment (not production default)."""
+    """Frozen Context v2 used by production CIR v0.2 (role+tier, lambda=1, tau=500)."""
     return ContextExperimentSpec(
         name="context_v2_recommended",
         mode=CONTEXT_MODE_V2,

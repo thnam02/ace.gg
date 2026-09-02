@@ -90,10 +90,28 @@ class PlayerMapsResponse(BaseModel):
     maps: list[MapAggregatePerformance] = Field(default_factory=list)
 
 
+class PlayerCompareCir(BaseModel):
+    cir: float | None = None
+    rank: int | None = None
+    reliability: str | None = None
+    rounds: int = 0
+    maps: int = 0
+    kpr: float | None = None
+    expected_kpr: float | None = None
+    kpr_residual: float | None = None
+    dpr: float | None = None
+    expected_dpr: float | None = None
+    negative_dpr_residual: float | None = None
+    combat_factor: float | None = None
+    sample_status: str | None = None
+    metric_version: str | None = None
+
+
 class PlayerCompareEntry(BaseModel):
     player: PlayerIdentity
     stats: PlayerDashboardStats
     aggregate: PlayerStatsAggregate
+    cir: PlayerCompareCir | None = None
 
 
 class PlayerCompareResponse(BaseModel):

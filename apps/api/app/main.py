@@ -6,7 +6,7 @@ from app.config import settings
 
 app = FastAPI(
     title="VALORANT Scout API",
-    description="Player stats and comparison API backed by ingested PostgreSQL data.",
+    description="Player stats, CIR rankings, and comparison API backed by PostgreSQL snapshots.",
     version="0.1.0",
 )
 

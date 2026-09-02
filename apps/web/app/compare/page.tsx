@@ -44,8 +44,7 @@ export default async function ComparePage({ searchParams }: ComparePageProps) {
       <header className="space-y-1">
         <h1 className="text-lg font-semibold tracking-tight">Compare players</h1>
         <p className="text-sm text-muted-foreground">
-          Select two or more players. The table is the source of truth; bars are a visual aid with
-          labeled values.
+          Select two or more players. CIR inputs are separate from additional scouting stats.
         </p>
       </header>
       <PlayerRoster players={roster} initialSelected={ids} />

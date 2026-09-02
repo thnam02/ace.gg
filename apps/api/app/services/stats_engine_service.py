@@ -99,6 +99,7 @@ class StatsEngineService:
                 .selectinload(Match.team_b),
                 selectinload(PlayerMapStats.agent),
                 selectinload(PlayerMapStats.team),
+                selectinload(PlayerMapStats.player),
             )
             .order_by(Match.played_at.desc(), MatchMap.map_number)
         )

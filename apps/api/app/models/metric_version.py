@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Date, String, UniqueConstraint
+from sqlalchemy import Date, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,10 +18,17 @@ class MetricVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
     __tablename__ = "metric_versions"
     __table_args__ = (
         UniqueConstraint("name", "version", name="uq_metric_versions_name_version"),
+        Index("ix_metric_versions_status", "status"),
     )
 
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="RESEARCH",
+        server_default="RESEARCH",
+    )
     training_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     training_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     feature_names: Mapped[list[str]] = mapped_column(JSONB, nullable=False)

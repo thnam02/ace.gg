@@ -34,7 +34,9 @@ def _format_elo(summary: TeamRatingRebuildSummary) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Retrain CIR v0.1 without changing its design")
+    parser = argparse.ArgumentParser(
+        description="Historical CIR v0.1 trainer. Production CIR is v0.2 via app.cli.train_cir_v02."
+    )
     parser.add_argument(
         "--persist-version",
         default=CIR_REAL_EXPERIMENT_VERSION,
