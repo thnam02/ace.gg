@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Event, Match, PlayerMapStats
+from app.normalizers.player_identity_resolver import PlayerIdentityResolver
 from app.normalizers.vlr_api_event_normalizer import VlrApiEventNormalizer
 from app.normalizers.vlr_api_match_normalizer import VlrApiMatchNormalizer
 from app.providers.vlr_api_ingestion_provider import StaticVlrApiIngestionProvider
@@ -47,7 +48,6 @@ def test_match_normalizer_bo3_structure() -> None:
     data = normalizer.normalize(
         match_900001_bo3(),
         event_id=91000,
-        player_id_map={"tenz": 92001},
     )
     assert data.vlr_match_id == 900001
     assert data.team_a.name == "Sentinels"
@@ -84,14 +84,15 @@ def test_event_normalizer_discovers_match_ids() -> None:
     )
     assert page.event.name == "Champions 2024"
     assert page.event.start_date == date(2024, 8, 1)
+    assert page.event.tier == "T1"
     assert page.match_ids == [900001, 900002, 999999, 999998]
     assert len(page.participating_teams) == 2
 
 
 def test_event_normalizer_player_id_map() -> None:
-    player_map = VlrApiEventNormalizer().build_player_id_map(event_91000())
-    assert player_map["tenz"] == 92001
-    assert player_map["aspas"] == 92006
+    resolver = PlayerIdentityResolver.from_event_teams(event_91000())
+    assert resolver.resolve("TenZ", None) == 92001
+    assert resolver.resolve("aspas", None) == 92006
 
 
 def test_vlrggapi_client_http_error() -> None:

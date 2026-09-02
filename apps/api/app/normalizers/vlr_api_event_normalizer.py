@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.normalizers.event_tier_resolver import EventTierResolver
 from app.normalizers.vlr_api_parsing import (
     as_dict,
     as_list,
@@ -16,6 +17,9 @@ from app.schemas.ingestion import NormalizedEvent, NormalizedEventPageData, Norm
 class VlrApiEventNormalizer:
     """Convert vlrggapi event JSON into canonical ingestion DTOs."""
 
+    def __init__(self, tier_resolver: EventTierResolver | None = None) -> None:
+        self._tier_resolver = tier_resolver or EventTierResolver()
+
     def normalize_event_page(
         self,
         event_id: int,
@@ -26,15 +30,21 @@ class VlrApiEventNormalizer:
         event_info = as_dict(segments.get("event"))
 
         name = str(event_info.get("name") or f"Event {event_id}")
+        series = str(event_info.get("series") or "")
         start_date, end_date = parse_date_range_text(str(event_info.get("dates") or ""))
         location = str(event_info.get("location") or "")
         region = country_to_region(location) or _region_from_location_text(location)
+        tier = self._tier_resolver.resolve(
+            name=name,
+            series=series,
+            explicit_tier=str(event_info.get("tier") or "") or None,
+        ).value
 
         event = NormalizedEvent(
             vlr_event_id=event_id,
             name=name,
             region=region,
-            tier=None,
+            tier=tier,
             start_date=start_date,
             end_date=end_date,
             season_year=end_date.year if end_date else start_date.year if start_date else None,
@@ -49,19 +59,6 @@ class VlrApiEventNormalizer:
             participating_teams=teams,
             match_ids=match_ids,
         )
-
-    def build_player_id_map(self, event_data: dict[str, Any]) -> dict[str, int]:
-        segments = as_dict(event_data.get("segments"))
-        player_map: dict[str, int] = {}
-        for team in as_list(segments.get("teams")):
-            team_row = as_dict(team)
-            for player in as_list(team_row.get("players")):
-                player_row = as_dict(player)
-                player_id = parse_vlr_id(player_row.get("id"))
-                handle = str(player_row.get("name") or "").strip()
-                if player_id is not None and handle:
-                    player_map[handle.lower()] = player_id
-        return player_map
 
     def _normalize_teams(self, segments: dict[str, Any]) -> list[NormalizedTeam]:
         teams: list[NormalizedTeam] = []

@@ -169,6 +169,8 @@ class MatchIngestionService:
         match_map: MatchMap,
         data: NormalizedPlayerMapStats,
     ) -> PlayerMapStats:
+        if data.rounds is None:
+            raise ValueError("Player map stats require resolved rounds")
         player = self._upsert_player(data.player)
         team = self._team_by_vlr_id(data.team_vlr_id)
         if team is None:

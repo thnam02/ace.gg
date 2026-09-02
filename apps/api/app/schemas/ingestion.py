@@ -42,11 +42,21 @@ class NormalizedEventPageData(BaseModel):
 
 class EventIngestionSummary(BaseModel):
     event_id: int
-    matches_discovered: int
-    matches_ingested: int
-    matches_skipped: int
-    matches_failed: int
-    player_map_stats_created: int
+    matches_discovered: int = 0
+    matches_ingested: int = 0
+    matches_skipped: int = 0
+    matches_failed: int = 0
+    player_map_stats_created: int = 0
+    maps_created: int = 0
+    missing_rounds: int = 0
+    missing_kast: int = 0
+    missing_clutch: int = 0
+    unresolved_players: int = 0
+    ambiguous_players: int = 0
+    resolved_by_id: int = 0
+    resolved_by_roster: int = 0
+    resolved_by_name: int = 0
+    dry_run: bool = False
     errors: list[str] = Field(default_factory=list)
 
 
@@ -54,7 +64,7 @@ class NormalizedPlayerMapStats(BaseModel):
     player: NormalizedPlayer
     team_vlr_id: int
     agent: NormalizedAgent
-    rounds: int = 0
+    rounds: int | None = None
     kills: int = 0
     deaths: int = 0
     assists: int = 0

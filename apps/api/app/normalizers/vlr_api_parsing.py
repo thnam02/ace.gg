@@ -143,15 +143,17 @@ def clutch_stats_from_advanced(
             continue
         clutch_attempts = 0
         clutch_wins = 0
+        found_clutch_field = False
         for key, value in row.items():
             key_lower = str(key).lower()
             if "clutch" not in key_lower:
                 continue
+            found_clutch_field = True
             count = parse_int(value, default=0)
             clutch_attempts += count
             if "win" in key_lower or key_lower.endswith("1v1"):
                 clutch_wins += count
-        if clutch_attempts == 0:
+        if not found_clutch_field:
             return None, None
         return clutch_wins, clutch_attempts
     return None, None

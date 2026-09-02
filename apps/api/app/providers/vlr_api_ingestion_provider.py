@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from app.providers.vlrggapi_client import VlrggApiClient
+from app.providers.vlrggapi_raw_cache import VlrggApiRawCache
 
 
 class VlrApiIngestionProvider:
@@ -91,3 +92,43 @@ class StaticVlrApiIngestionProvider:
             from app.providers.vlrggapi_errors import VlrggApiHttpError
 
             raise VlrggApiHttpError(404, f"/v2/team?id={team_id}") from exc
+
+
+class CachingVlrApiIngestionProvider:
+    """Wrap a provider and persist raw JSON via VlrggApiRawCache."""
+
+    def __init__(
+        self,
+        provider: VlrApiIngestionProvider | StaticVlrApiIngestionProvider,
+        cache: VlrggApiRawCache,
+    ) -> None:
+        self._provider = provider
+        self._cache = cache
+
+    def close(self) -> None:
+        self._provider.close()
+
+    def get_match(self, match_id: int) -> dict[str, Any]:
+        data = self._provider.get_match(match_id)
+        self._cache.save("matches", match_id, data)
+        return data
+
+    def get_event(self, event_id: int) -> dict[str, Any]:
+        data = self._provider.get_event(event_id)
+        self._cache.save("events", event_id, data)
+        return data
+
+    def get_event_matches(self, event_id: int) -> dict[str, Any]:
+        data = self._provider.get_event_matches(event_id)
+        self._cache.save("event_matches", event_id, data)
+        return data
+
+    def get_player(self, player_id: int) -> dict[str, Any]:
+        data = self._provider.get_player(player_id)
+        self._cache.save("players", player_id, data)
+        return data
+
+    def get_team(self, team_id: int) -> dict[str, Any]:
+        data = self._provider.get_team(team_id)
+        self._cache.save("teams", team_id, data)
+        return data
