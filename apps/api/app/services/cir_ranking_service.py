@@ -24,6 +24,8 @@ from app.schemas.cir_ranking import (
     CirPlayerDetail,
     CirRankingPlayer,
     CirRankingResponse,
+    PlayerOption,
+    PlayerOptionsResponse,
 )
 from app.schemas.player_api import PlayerCompareCir, TeamRef
 from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
@@ -147,11 +149,15 @@ class CirRankingService:
             raise PlayerNotFoundError(player_ref)
         details = snapshot.details or {}
         identity = self._players._to_identity(player)
+        ranks = self._rank_lookup(version.id)
         return CirPlayerDetail(
             player_id=str(player.id),
             handle=player.handle,
             team=identity.team,
             role=_detail_str(details, "role"),
+            tier=_detail_str(details, "tier"),
+            rank=ranks.get(player.id),
+            established_count=len(ranks),
             cir=snapshot.cir,
             raw_cir=snapshot.raw_cir,
             shrunk_raw_cir=snapshot.shrunk_raw_cir,
@@ -177,6 +183,72 @@ class CirRankingService:
             reference_period_end=version.training_end.isoformat() if version.training_end else None,
             interpretation=PUBLIC_INTERPRETATION,
         )
+
+    def list_options(
+        self,
+        *,
+        search: str | None = None,
+        team: str | None = None,
+        role: str | None = None,
+        tier: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> PlayerOptionsResponse:
+        version = self.resolve_metric_version()
+        rows = list(self._session.execute(self._base_query(version.id)).unique().all())
+        needle = search.strip().lower() if search else ""
+        team_needle = team.strip().lower() if team else ""
+        role_needle = role.strip().lower() if role else ""
+        tier_needle = tier.strip().lower() if tier else ""
+        options: list[PlayerOption] = []
+        for snapshot, player, team_row in rows:
+            details = snapshot.details or {}
+            option_role = _detail_str(details, "role")
+            option_tier = _detail_str(details, "tier")
+            team_ref = _team_ref(player, team_row)
+            if role_needle and (option_role or "").lower() != role_needle:
+                continue
+            if tier_needle and (option_tier or "").lower() != tier_needle:
+                continue
+            if team_needle:
+                team_haystack = " ".join(
+                    [
+                        team_ref.name if team_ref else "",
+                        team_ref.tag if team_ref else "",
+                    ]
+                ).lower()
+                if team_needle not in team_haystack:
+                    continue
+            if needle:
+                haystack = " ".join(
+                    [
+                        player.handle,
+                        player.real_name or "",
+                        team_ref.name if team_ref else "",
+                        team_ref.tag if team_ref else "",
+                        option_role or "",
+                    ]
+                ).lower()
+                if needle not in haystack:
+                    continue
+            options.append(
+                PlayerOption(
+                    id=str(player.id),
+                    handle=player.handle,
+                    real_name=player.real_name,
+                    team=team_ref,
+                    role=option_role,
+                    tier=option_tier,
+                    cir=snapshot.cir,
+                    rounds=snapshot.rounds,
+                    sample_status=snapshot.sample_status,
+                    reliability=snapshot.reliability,
+                )
+            )
+        options.sort(key=lambda item: item.handle.lower())
+        total = len(options)
+        page = options[offset : offset + limit]
+        return PlayerOptionsResponse(total=total, limit=limit, offset=offset, players=page)
 
     def compare(
         self,
@@ -239,6 +311,8 @@ class CirRankingService:
         ranks = self._rank_lookup(version.id)
         return PlayerCompareCir(
             cir=snapshot.cir,
+            role=_detail_str(details, "role"),
+            tier=_detail_str(details, "tier"),
             rank=ranks.get(player_id),
             reliability=snapshot.reliability,
             rounds=snapshot.rounds,
@@ -350,6 +424,28 @@ def _matches_details(
     return True
 
 
+def _team_ref(player: Player, team: Team | None) -> TeamRef | None:
+    if team is not None:
+        return TeamRef(
+            id=str(team.id),
+            vlr_team_id=team.vlr_team_id,
+            name=team.name,
+            tag=team.tag,
+            region=team.region,
+        )
+    if player.team_history:
+        current = next((entry for entry in player.team_history if entry.is_current), None)
+        if current is not None:
+            return TeamRef(
+                id=str(current.team.id),
+                vlr_team_id=current.team.vlr_team_id,
+                name=current.team.name,
+                tag=current.team.tag,
+                region=current.team.region,
+            )
+    return None
+
+
 def _to_ranking_player(
     *,
     rank: int,
@@ -359,30 +455,11 @@ def _to_ranking_player(
     version: MetricVersion,
 ) -> CirRankingPlayer:
     details = snapshot.details or {}
-    team_ref = None
-    if team is not None:
-        team_ref = TeamRef(
-            id=str(team.id),
-            vlr_team_id=team.vlr_team_id,
-            name=team.name,
-            tag=team.tag,
-            region=team.region,
-        )
-    elif player.team_history:
-        current = next((entry for entry in player.team_history if entry.is_current), None)
-        if current is not None:
-            team_ref = TeamRef(
-                id=str(current.team.id),
-                vlr_team_id=current.team.vlr_team_id,
-                name=current.team.name,
-                tag=current.team.tag,
-                region=current.team.region,
-            )
     return CirRankingPlayer(
         rank=rank,
         player_id=str(player.id),
         handle=player.handle,
-        team=team_ref,
+        team=_team_ref(player, team),
         role=_detail_str(details, "role"),
         primary_agent=_detail_str(details, "primary_agent"),
         cir=snapshot.cir,

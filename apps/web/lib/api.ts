@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   PlayerComparison,
   PlayerDetailResponse,
+  PlayerOptionsResponse,
   PlayerProfile,
   PlayerSummary,
 } from "@/lib/types";
@@ -96,6 +97,32 @@ export async function fetchComparison(ids: string[]): Promise<PlayerComparison> 
     params.append("player_ids", id);
   }
   return apiFetch<PlayerComparison>(`/players/compare?${params.toString()}`);
+}
+
+export async function fetchPlayerOptions(options?: {
+  search?: string;
+  team?: string;
+  role?: string;
+  tier?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PlayerOptionsResponse> {
+  const params = new URLSearchParams();
+  if (options?.search) {
+    params.set("search", options.search);
+  }
+  if (options?.team) {
+    params.set("team", options.team);
+  }
+  if (options?.role) {
+    params.set("role", options.role);
+  }
+  if (options?.tier) {
+    params.set("tier", options.tier);
+  }
+  params.set("limit", String(options?.limit ?? 20));
+  params.set("offset", String(options?.offset ?? 0));
+  return apiFetch<PlayerOptionsResponse>(`/players/options?${params.toString()}`);
 }
 
 export async function fetchCirRankings(options?: {

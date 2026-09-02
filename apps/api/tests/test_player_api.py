@@ -160,10 +160,14 @@ def test_invalid_player_id_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_compare_invalid_player_id_returns_404(client: TestClient, db_session: Session) -> None:
+def test_compare_skips_unknown_player_ids(client: TestClient, db_session: Session) -> None:
     graph = seed_match_graph(db_session)
     response = client.get(
         "/players/compare",
         params={"player_ids": [str(graph["player"].id), "not-valid"]},
     )
-    assert response.status_code == 404
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["players"]) == 1
+    assert payload["players"][0]["player"]["handle"] == "TenZ"
+    assert "Unknown player IDs: not-valid" in payload["notes"]

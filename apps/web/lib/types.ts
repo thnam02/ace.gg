@@ -64,6 +64,8 @@ export type PlayerStatsAggregate = {
     weighted_adr: number | null;
     weighted_kast: number | null;
     weighted_acs: number | null;
+    clutch_wins?: number | null;
+    clutch_attempts?: number | null;
   };
   derived: MapStatsDerived;
   maps: unknown[];
@@ -87,6 +89,8 @@ export type PlayerDetailResponse = {
 export type CirCompareBlock = {
   cir: number | null;
   rank: number | null;
+  role?: string | null;
+  tier?: string | null;
   reliability: string | null;
   rounds: number;
   maps: number;
@@ -111,6 +115,26 @@ export type PlayerCompareEntry = {
 export type PlayerComparison = {
   players: PlayerCompareEntry[];
   notes: string;
+};
+
+export type PlayerOption = {
+  id: string;
+  handle: string;
+  real_name: string | null;
+  team: TeamRef | null;
+  role: string | null;
+  tier: string | null;
+  cir: number | null;
+  rounds: number;
+  sample_status: string | null;
+  reliability: string | null;
+};
+
+export type PlayerOptionsResponse = {
+  total: number;
+  limit: number;
+  offset: number;
+  players: PlayerOption[];
 };
 
 export type CirRankingPlayer = {
@@ -144,6 +168,9 @@ export type CirPlayerDetail = {
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  tier?: string | null;
+  rank?: number | null;
+  established_count?: number;
   cir: number | null;
   raw_cir: number | null;
   reliability: string | null;

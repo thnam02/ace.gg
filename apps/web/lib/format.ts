@@ -39,7 +39,14 @@ export function formatCir(value: number | null | undefined): string {
   if (value == null) {
     return "N/A";
   }
-  return String(Math.round(value));
+  if (value >= 99.95) {
+    return "100";
+  }
+  const nearest = Math.round(value);
+  if (nearest !== 100 && Math.abs(value - nearest) < 0.05) {
+    return String(nearest);
+  }
+  return value.toFixed(1);
 }
 
 export function formatRate(value: number | null | undefined, digits = 2): string {

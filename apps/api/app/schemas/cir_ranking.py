@@ -39,11 +39,34 @@ class CirRankingResponse(BaseModel):
     players: list[CirRankingPlayer] = Field(default_factory=list)
 
 
+class PlayerOption(BaseModel):
+    id: str
+    handle: str
+    real_name: str | None = None
+    team: TeamRef | None = None
+    role: str | None = None
+    tier: str | None = None
+    cir: float | None = None
+    rounds: int = 0
+    sample_status: str | None = None
+    reliability: str | None = None
+
+
+class PlayerOptionsResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    players: list[PlayerOption] = Field(default_factory=list)
+
+
 class CirPlayerDetail(BaseModel):
     player_id: str
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    tier: str | None = None
+    rank: int | None = None
+    established_count: int = 0
     cir: float | None = None
     raw_cir: float | None = None
     shrunk_raw_cir: float | None = None

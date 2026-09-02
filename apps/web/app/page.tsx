@@ -1,6 +1,7 @@
 import { AlertBanner } from "@/components/alert-banner";
 import { CirRankings } from "@/components/cir-rankings";
 import { fetchCirMetadata, fetchCirRankings } from "@/lib/api";
+import { parseFlag } from "@/lib/compare";
 
 type HomePageProps = {
   searchParams: Promise<{ include_provisional?: string | string[] }>;
@@ -8,10 +9,7 @@ type HomePageProps = {
 
 export default async function HomePage({ searchParams }: HomePageProps) {
   const params = await searchParams;
-  const raw = params.include_provisional;
-  const includeProvisional = Array.isArray(raw)
-    ? raw.includes("1") || raw.includes("true")
-    : raw === "1" || raw === "true";
+  const includeProvisional = parseFlag(params.include_provisional);
 
   let loadError: string | null = null;
   let rankings = null;

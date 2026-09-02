@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AlertBanner } from "@/components/alert-banner";
 import { CirRankings } from "@/components/cir-rankings";
 import { fetchCirMetadata, fetchCirRankings } from "@/lib/api";
+import { parseFlag } from "@/lib/compare";
 
 type RankingsPageProps = {
   searchParams: Promise<{ include_provisional?: string | string[] }>;
@@ -10,10 +11,7 @@ type RankingsPageProps = {
 
 export default async function RankingsPage({ searchParams }: RankingsPageProps) {
   const params = await searchParams;
-  const raw = params.include_provisional;
-  const includeProvisional = Array.isArray(raw)
-    ? raw.includes("1") || raw.includes("true")
-    : raw === "1" || raw === "true";
+  const includeProvisional = parseFlag(params.include_provisional);
   let rankings = null;
   let metadata = null;
   try {
