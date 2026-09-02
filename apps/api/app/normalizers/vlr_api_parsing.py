@@ -253,6 +253,22 @@ def event_match_entries(payload: dict[str, Any]) -> list[Any]:
     return []
 
 
+def event_match_refs(payload: dict[str, Any] | None) -> list[tuple[int, str | None]]:
+    if payload is None:
+        return []
+    refs: list[tuple[int, str | None]] = []
+    seen: set[int] = set()
+    for entry in event_match_entries(payload):
+        row = as_dict(entry)
+        match_id = parse_vlr_id(row.get("match_id"))
+        if match_id is None or match_id in seen:
+            continue
+        seen.add(match_id)
+        status = str(row.get("status") or "").strip() or None
+        refs.append((match_id, status))
+    return refs
+
+
 def parse_map_team_score(value: Any) -> int | None:
     if isinstance(value, dict):
         return parse_optional_int(value.get("total", value.get("score")))

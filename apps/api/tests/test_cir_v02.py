@@ -74,9 +74,7 @@ def test_round_weighted_expectations_not_equal_map_average() -> None:
         _observation(role="Duelist", tier="T1", rounds=90, kills=9, deaths=90),
     ]
     registry = build_context_v2_registry(observations)
-    expected_kpr, expected_dpr = expected_rates(
-        registry, observations[0], tau=0.0
-    )
+    expected_kpr, expected_dpr = expected_rates(registry, observations[0], tau=0.0)
     assert expected_kpr == pytest.approx(19 / 100)
     assert expected_dpr == pytest.approx(95 / 100)
     equal_weight = ((10 / 10) + (9 / 90)) / 2
@@ -227,9 +225,7 @@ def test_snapshot_refresh_is_idempotent_and_does_not_refit(db_session: Session) 
     assert version is not None
     frozen_mean = version.shrinkage_parameters["reference_mean"]
     snapshots_before = db_session.scalar(
-        select(PlayerMetricSnapshot).where(
-            PlayerMetricSnapshot.metric_version_id == version.id
-        )
+        select(PlayerMetricSnapshot).where(PlayerMetricSnapshot.metric_version_id == version.id)
     )
     assert snapshots_before is not None
     cir_before = snapshots_before.cir
@@ -239,9 +235,7 @@ def test_snapshot_refresh_is_idempotent_and_does_not_refit(db_session: Session) 
     assert version_after.shrinkage_parameters["reference_mean"] == frozen_mean
     snapshots_after = list(
         db_session.scalars(
-            select(PlayerMetricSnapshot).where(
-                PlayerMetricSnapshot.metric_version_id == version.id
-            )
+            select(PlayerMetricSnapshot).where(PlayerMetricSnapshot.metric_version_id == version.id)
         ).all()
     )
     assert len(snapshots_after) == 1

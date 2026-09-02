@@ -28,6 +28,8 @@ class NormalizedEvent(BaseModel):
     name: str
     region: str | None = None
     tier: str | None = None
+    circuit: str | None = None
+    stage: str | None = None
     start_date: date | None = None
     end_date: date | None = None
     season_year: int | None = None

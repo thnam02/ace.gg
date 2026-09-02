@@ -2,6 +2,7 @@ import { AlertBanner } from "@/components/alert-banner";
 import { CirRankings } from "@/components/cir-rankings";
 import { fetchCirMetadata, fetchCirRankings } from "@/lib/api";
 import { parseFlag } from "@/lib/compare";
+import { formatSyncDate } from "@/lib/format";
 
 type HomePageProps = {
   searchParams: Promise<{ include_provisional?: string | string[] }>;
@@ -35,6 +36,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           {metadata?.description ??
             "CIR measures context-adjusted combat performance by combining kill production and death avoidance."}
         </p>
+        {formatSyncDate(metadata?.last_data_sync_at) ? (
+          <p className="text-xs text-muted-foreground">
+            Updated daily · Last sync {formatSyncDate(metadata?.last_data_sync_at)}
+          </p>
+        ) : null}
       </header>
       {loadError ? (
         <AlertBanner title={loadError}>

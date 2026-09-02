@@ -72,9 +72,7 @@ class StaticVLRProvider(_UnimplementedVLRResources):
             return self._event_matches[event_id]
         if event_id in self._events:
             return self._events[event_id]
-        raise FileNotFoundError(
-            f"No VLR event match listing registered for event_id={event_id}"
-        )
+        raise FileNotFoundError(f"No VLR event match listing registered for event_id={event_id}")
 
 
 class FileVLRProvider(_UnimplementedVLRResources):

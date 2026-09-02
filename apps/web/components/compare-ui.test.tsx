@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CompareDrivers } from "@/components/compare-drivers";
 import { ComparePlayerCard } from "@/components/compare-player-card";
 import { CompareScouting } from "@/components/compare-scouting";
+import { CompareSelector } from "@/components/compare-selector";
 import { compareCardGridClass } from "@/lib/compare";
 import type { PlayerCompareEntry } from "@/lib/types";
 
@@ -94,6 +95,22 @@ function entry(overrides: {
     },
   };
 }
+
+describe("compare selector", () => {
+  it("does not render a suggestion list under search", () => {
+    const html = renderToStaticMarkup(
+      <CompareSelector
+        selectedIds={[]}
+        selectedChips={[]}
+        onAdd={() => null}
+        onRemove={() => undefined}
+      />,
+    );
+    expect(html).toContain("Search player");
+    expect(html).not.toContain("<ul");
+    expect(html).not.toContain("Searching");
+  });
+});
 
 describe("compare cards", () => {
   it("shows actual CIR, global rank, and role+tier context", () => {

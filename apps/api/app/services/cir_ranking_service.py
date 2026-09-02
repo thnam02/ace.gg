@@ -28,8 +28,10 @@ from app.schemas.cir_ranking import (
     PlayerOptionsResponse,
 )
 from app.schemas.player_api import PlayerCompareCir, TeamRef
+from app.schemas.vct_circuit import CircuitName
 from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
 from app.services.player_query import PlayerNotFoundError, PlayerQueryService
+from app.services.vct_sync_service import latest_match_played_at, latest_sync_run
 
 
 class CirRankingService:
@@ -330,6 +332,8 @@ class CirRankingService:
 
     def metadata(self, *, metric_version: str | None = None) -> CirMetricMetadata:
         version = self.resolve_metric_version(metric_version=metric_version)
+        sync_run = latest_sync_run(self._session)
+        played_at = latest_match_played_at(self._session)
         return CirMetricMetadata(
             name=version.name,
             version=version.version,
@@ -348,6 +352,12 @@ class CirRankingService:
                 version.training_start.isoformat() if version.training_start else None
             ),
             reference_period_end=version.training_end.isoformat() if version.training_end else None,
+            last_data_sync_at=sync_run.finished_at.isoformat()
+            if sync_run is not None and sync_run.finished_at is not None
+            else None,
+            latest_match_played_at=played_at.isoformat() if played_at is not None else None,
+            season=2026,
+            circuit=CircuitName.VCT.value,
         )
 
     def _base_query(

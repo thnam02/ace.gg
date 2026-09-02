@@ -40,6 +40,8 @@ def ingest_json_event(
     provider: VlrApiProvider | None = None,
     identity_lookup: HistoricalPlayerIdentityResolver | None = None,
     client: VlrggApiClient | None = None,
+    skip_matches: bool = False,
+    completed_matches_only: bool = False,
 ) -> EventIngestionSummary:
     api_url = base_url or settings.vlrggapi_base_url
     owns_provider = provider is None
@@ -69,7 +71,11 @@ def ingest_json_event(
     http_429_before = _http_429_count(owned_client)
     service = EventIngestionService(session, source, dry_run=dry_run)
     try:
-        summary = service.ingest_event(event_id)
+        summary = service.ingest_event(
+            event_id,
+            skip_matches=skip_matches,
+            completed_matches_only=completed_matches_only,
+        )
     finally:
         if owns_provider and owned_client is not None:
             owned_client.close()
@@ -90,6 +96,8 @@ def ingest_json_events(
     base_url: str | None = None,
     provider: VlrApiProvider | None = None,
     client: VlrggApiClient | None = None,
+    skip_matches: bool = False,
+    completed_matches_only: bool = False,
 ) -> BulkIngestionSummary:
     owns_client = False
     if provider is None:
@@ -114,6 +122,8 @@ def ingest_json_events(
                         provider=provider,
                         identity_lookup=lookup,
                         client=client,
+                        skip_matches=skip_matches,
+                        completed_matches_only=completed_matches_only,
                     )
                 )
                 latest = event_summaries[-1]

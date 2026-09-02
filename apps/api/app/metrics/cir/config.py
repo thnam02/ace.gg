@@ -8,6 +8,7 @@ from app.metrics.context_v2_config import CONTEXT_MODE_V2, ContextExperimentSpec
 
 CIR_NAME = CIR_METRIC_NAME
 CIR_V02_VERSION = "v0.2-real-2026"
+CIR_V03_VERSION = "v0.3-vct-2026"
 CIR_V02_FEATURE_NAMES: tuple[str, ...] = ("kpr_residual", "negative_dpr_residual")
 KPR_FEATURE = "kpr_residual"
 NEGATIVE_DPR_FEATURE = "negative_dpr_residual"

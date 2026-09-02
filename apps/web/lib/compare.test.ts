@@ -9,6 +9,7 @@ import {
   compareEmptyMessage,
   compareHref,
   parseCompareIds,
+  pickCompareSearchMatch,
   removeCompareId,
 } from "@/lib/compare";
 
@@ -40,5 +41,17 @@ describe("compare selection", () => {
     expect(compareDensity(2)).toBe("rich");
     expect(compareDensity(3)).toBe("compact");
     expect(compareDensity(4)).toBe("dense");
+  });
+
+  it("picks a unique search match without a suggestion list", () => {
+    const players = [
+      { handle: "TenZ" },
+      { handle: "something" },
+      { handle: "Demon1" },
+    ];
+    expect(pickCompareSearchMatch("tenz", players)?.handle).toBe("TenZ");
+    expect(pickCompareSearchMatch("som", players)?.handle).toBe("something");
+    expect(pickCompareSearchMatch("e", players)).toBeNull();
+    expect(pickCompareSearchMatch("", players)).toBeNull();
   });
 });

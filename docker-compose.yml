@@ -31,6 +31,24 @@ services:
       db:
         condition: service_healthy
 
+  vct-sync:
+    build:
+      context: ./apps/api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-valorant}:${POSTGRES_PASSWORD:-valorant}@db:5432/${POSTGRES_DB:-valorant_scout}
+      VLRGGAPI_BASE_URL: ${VLRGGAPI_BASE_URL:-http://host.docker.internal:3002}
+      VLR_CIRCUIT_URL: ${VLR_CIRCUIT_URL:-https://www.vlr.gg/vct}
+      VCT_SYNC_SEASON_YEAR: ${VCT_SYNC_SEASON_YEAR:-2026}
+      VCT_SYNC_CRON: ${VCT_SYNC_CRON:-0 3 * * *}
+      VCT_SYNC_RAW_CACHE_DIR: ${VCT_SYNC_RAW_CACHE_DIR:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/app/scripts/run_vct_sync_cron.sh"]
+
   web:
     build:
       context: ./apps/web

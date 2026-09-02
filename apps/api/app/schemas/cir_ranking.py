@@ -133,3 +133,7 @@ class CirMetricMetadata(BaseModel):
     shrinkage_k: float
     reference_period_start: str | None = None
     reference_period_end: str | None = None
+    last_data_sync_at: str | None = None
+    latest_match_played_at: str | None = None
+    season: int | None = None
+    circuit: str | None = None

@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.normalizers.event_status import is_completed_match_status
 from app.normalizers.player_identity_resolver import PlayerIdentityResolver
 from app.normalizers.vlr_api_event_normalizer import VlrApiEventNormalizer
 from app.normalizers.vlr_api_match_normalizer import VlrApiMatchNormalizer
-from app.normalizers.vlr_api_parsing import as_dict, as_list, parse_vlr_id, unwrap_match_payload
+from app.normalizers.vlr_api_parsing import (
+    as_dict,
+    as_list,
+    event_match_refs,
+    parse_vlr_id,
+    unwrap_match_payload,
+)
 from app.parsers.event_parser import EventParser
 from app.parsers.match_parser import MatchParser
 from app.providers.vlr_api_ingestion_provider import (
@@ -80,6 +87,7 @@ class VlrApiEventIngestionSource:
         self._identity_resolver: PlayerIdentityResolver | None = None
         self._event: NormalizedEvent | None = None
         self._event_data: dict[str, Any] | None = None
+        self._event_matches_data: dict[str, Any] | None = None
         self._team_profile_cache: dict[int, dict[str, Any] | None] = {}
 
     @property
@@ -95,10 +103,18 @@ class VlrApiEventIngestionSource:
             event_matches_data,
         )
         self._event_data = event_data
+        self._event_matches_data = event_matches_data
         self._identity_resolver = self._build_identity_resolver()
         self._event = page_data.event
         self._team_profile_cache.clear()
         return page_data
+
+    def completed_match_ids(self) -> list[int]:
+        return [
+            match_id
+            for match_id, status in event_match_refs(self._event_matches_data)
+            if is_completed_match_status(status)
+        ]
 
     def load_match(self, match_id: int, event_id: int) -> NormalizedMatchData:
         match_data = self._provider.get_match(match_id)

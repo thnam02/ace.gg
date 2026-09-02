@@ -87,3 +87,26 @@ export function compareDensity(count: number): "rich" | "compact" | "dense" {
   }
   return "dense";
 }
+
+export function pickCompareSearchMatch<T extends { handle: string }>(
+  query: string,
+  players: T[],
+): T | null {
+  const needle = query.trim().toLowerCase();
+  if (!needle || players.length === 0) {
+    return null;
+  }
+  const exact = players.filter((player) => player.handle.toLowerCase() === needle);
+  if (exact.length === 1) {
+    return exact[0];
+  }
+  const prefix = players.filter((player) => player.handle.toLowerCase().startsWith(needle));
+  if (prefix.length === 1) {
+    return prefix[0];
+  }
+  const contains = players.filter((player) => player.handle.toLowerCase().includes(needle));
+  if (contains.length === 1) {
+    return contains[0];
+  }
+  return null;
+}

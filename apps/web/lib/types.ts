@@ -202,6 +202,10 @@ export type CirMetricMetadata = {
   context: string;
   scale: string;
   established_sample: number;
+  last_data_sync_at?: string | null;
+  latest_match_played_at?: string | null;
+  season?: number | null;
+  circuit?: string | null;
 };
 
 /** Roster/compare view model derived from API summaries. */

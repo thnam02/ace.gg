@@ -35,6 +35,22 @@ export function formatWinRate(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+export function formatSyncDate(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function formatCir(value: number | null | undefined): string {
   if (value == null) {
     return "N/A";
