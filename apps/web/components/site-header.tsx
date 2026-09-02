@@ -1,7 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowsLeftRightIcon, PulseIcon, TrophyIcon } from "@phosphor-icons/react/dist/ssr";
+import { ArrowsLeftRightIcon, TrophyIcon } from "@phosphor-icons/react/dist/ssr";
 
 import { StatusBadge } from "@/components/status-badge";
+import { BRAND } from "@/lib/brand";
 import type { HealthResponse } from "@/lib/types";
 
 type SiteHeaderProps = {
@@ -14,10 +16,16 @@ export function SiteHeader({ health }: SiteHeaderProps) {
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-3 py-2 sm:px-4">
         <Link
           href="/"
-          className="flex items-center gap-2 text-sm font-semibold text-foreground transition-colors duration-200 hover:text-accent"
+          className="flex min-w-0 items-center transition-opacity duration-200 hover:opacity-90"
         >
-          <PulseIcon className="size-4 text-accent" weight="bold" aria-hidden="true" />
-          <span className="font-mono tracking-tight">VALORANT Scout</span>
+          <Image
+            src={BRAND.logoSrc}
+            alt={BRAND.name}
+            width={196}
+            height={64}
+            className="h-7 w-auto sm:h-8"
+            priority
+          />
         </Link>
         <nav aria-label="Primary" className="flex items-center gap-1 text-sm">
           <Link

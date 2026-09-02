@@ -103,6 +103,14 @@ export function CirRankings({
     setDraft((current) => ({ ...current, ...patch }));
   }
 
+  function updateSearch(query: string) {
+    const nextApplied = { ...applied, query };
+    setDraft((current) => ({ ...current, query }));
+    setApplied(nextApplied);
+    setPage(1);
+    persistSession(nextApplied, includeProvisional, 1);
+  }
+
   function persistSession(
     nextFilters: RankingExploreFilters,
     nextInclude: boolean,
@@ -208,7 +216,7 @@ export function CirRankings({
             id="ranking-search"
             type="search"
             value={draft.query}
-            onChange={(event) => updateDraft({ query: event.target.value })}
+            onChange={(event) => updateSearch(event.target.value)}
             placeholder="Handle or team"
             className={`${controlClass} w-44 placeholder:text-muted-foreground`}
           />

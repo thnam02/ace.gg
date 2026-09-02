@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { SiteHeader } from "@/components/site-header";
 import { fetchHealth } from "@/lib/api";
+import { BRAND } from "@/lib/brand";
 
 import "./globals.css";
 
@@ -21,10 +22,13 @@ const firaCode = Fira_Code({
 
 export const metadata: Metadata = {
   title: {
-    default: "VALORANT Scout",
-    template: "%s · VALORANT Scout",
+    default: BRAND.name,
+    template: `%s · ${BRAND.name}`,
   },
-  description: "CIR rankings and player scouting for VALORANT.",
+  description: BRAND.description,
+  icons: {
+    icon: BRAND.markSrc,
+  },
 };
 
 export default async function RootLayout({

@@ -77,7 +77,8 @@ describe("CirRankings pagination", () => {
         tooltip="CIR"
       />,
     );
-    expect(html).toContain(">Search<");
+    expect(html).toContain('id="ranking-search"');
+    expect(html).toContain('type="search"');
     expect(html).toContain(">Tier<");
     expect(html).toContain(">Region<");
     expect(html).toContain(">Role<");

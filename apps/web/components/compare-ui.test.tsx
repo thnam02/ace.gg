@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CompareDrivers } from "@/components/compare-drivers";
 import { ComparePlayerCard } from "@/components/compare-player-card";
 import { CompareScouting } from "@/components/compare-scouting";
-import { CompareSelector } from "@/components/compare-selector";
+import { CompareSearchResults, CompareSelector } from "@/components/compare-selector";
 import { compareCardGridClass } from "@/lib/compare";
 import type { PlayerCompareEntry } from "@/lib/types";
 
@@ -97,7 +97,7 @@ function entry(overrides: {
 }
 
 describe("compare selector", () => {
-  it("does not render a suggestion list under search", () => {
+  it("hides suggestions until the search field has a query", () => {
     const html = renderToStaticMarkup(
       <CompareSelector
         selectedIds={[]}
@@ -107,8 +107,37 @@ describe("compare selector", () => {
       />,
     );
     expect(html).toContain("Search player");
-    expect(html).not.toContain("<ul");
+    expect(html).not.toContain("Player matches");
     expect(html).not.toContain("Searching");
+  });
+
+  it("renders matches under search so a player can be chosen", () => {
+    const html = renderToStaticMarkup(
+      <CompareSearchResults
+        id="matches"
+        query="neo"
+        loading={false}
+        onSelect={() => undefined}
+        players={[
+          {
+            id: "a",
+            handle: "Neon",
+            real_name: null,
+            team: { id: "t", vlr_team_id: 1, name: "LEVIATÁN", tag: "LEV", region: null },
+            role: "Sentinel",
+            tier: "T1",
+            cir: 99.8,
+            rounds: 1487,
+            sample_status: "ESTABLISHED",
+            reliability: "HIGH",
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("Player matches");
+    expect(html).toContain("Neon");
+    expect(html).toContain("LEVIATÁN");
+    expect(html).toContain("99.8");
   });
 });
 
