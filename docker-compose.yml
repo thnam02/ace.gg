@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-valorant}
       POSTGRES_DB: ${POSTGRES_DB:-valorant_scout}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,6 +25,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DOCS_ENABLED: ${DOCS_ENABLED:-true}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -32,6 +33,7 @@ services:
         condition: service_healthy
 
   vct-sync:
+    profiles: ["sync"]
     build:
       context: ./apps/api
     restart: unless-stopped
