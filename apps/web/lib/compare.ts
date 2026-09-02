@@ -1,6 +1,15 @@
+import type {
+  CirPlayerDetail,
+  PlayerCompareEntry,
+  PlayerDetailResponse,
+  PlayerOption,
+} from "@/lib/types";
+
 export const MIN_COMPARE_PLAYERS = 2;
 export const MAX_COMPARE_PLAYERS = 4;
 export const MAX_COMPARE_MESSAGE = "You can compare up to 4 players at once.";
+export const COMPARE_CHIP_LOADING = "Loading…";
+export const COMPARE_CHIP_UNKNOWN = "Unknown player";
 
 export function parseFlag(raw: string | string[] | undefined): boolean {
   if (raw == null) {
@@ -109,4 +118,113 @@ export function pickCompareSearchMatch<T extends { handle: string }>(
     return contains[0];
   }
   return null;
+}
+
+export function isResolvedCompareHandle(handle: string, id: string): boolean {
+  const trimmed = handle.trim();
+  if (!trimmed || trimmed === COMPARE_CHIP_LOADING || trimmed === COMPARE_CHIP_UNKNOWN) {
+    return false;
+  }
+  return trimmed !== id && trimmed !== id.slice(0, 8);
+}
+
+export function compareChipLabel(player: Pick<PlayerOption, "id" | "handle">): string {
+  if (isResolvedCompareHandle(player.handle, player.id)) {
+    return player.handle;
+  }
+  if (player.handle.trim() === COMPARE_CHIP_UNKNOWN) {
+    return COMPARE_CHIP_UNKNOWN;
+  }
+  return COMPARE_CHIP_LOADING;
+}
+
+function emptyCompareOption(id: string, handle: string): PlayerOption {
+  return {
+    id,
+    handle,
+    real_name: null,
+    team: null,
+    role: null,
+    tier: null,
+    cir: null,
+    rounds: 0,
+    sample_status: null,
+    reliability: null,
+  };
+}
+
+export function pendingCompareOption(id: string): PlayerOption {
+  return emptyCompareOption(id, COMPARE_CHIP_LOADING);
+}
+
+export function unknownCompareOption(id: string): PlayerOption {
+  return emptyCompareOption(id, COMPARE_CHIP_UNKNOWN);
+}
+
+export function compareOptionFromCir(cir: CirPlayerDetail): PlayerOption {
+  return {
+    id: cir.player_id,
+    handle: cir.handle,
+    real_name: null,
+    team: cir.team,
+    role: cir.role,
+    tier: cir.tier ?? null,
+    cir: cir.cir,
+    rounds: cir.rounds,
+    sample_status: cir.sample_status,
+    reliability: cir.reliability,
+  };
+}
+
+export function compareOptionFromDetail(detail: PlayerDetailResponse): PlayerOption {
+  return {
+    id: detail.player.id,
+    handle: detail.player.handle,
+    real_name: detail.player.real_name,
+    team: detail.player.team,
+    role: null,
+    tier: null,
+    cir: null,
+    rounds: detail.stats.rounds,
+    sample_status: null,
+    reliability: null,
+  };
+}
+
+export function compareOptionFromEntry(entry: PlayerCompareEntry): PlayerOption {
+  return {
+    id: entry.player.id,
+    handle: entry.player.handle,
+    real_name: entry.player.real_name,
+    team: entry.player.team,
+    role: entry.cir?.role ?? null,
+    tier: entry.cir?.tier ?? null,
+    cir: entry.cir?.cir ?? null,
+    rounds: entry.cir?.rounds ?? 0,
+    sample_status: entry.cir?.sample_status ?? null,
+    reliability: entry.cir?.reliability ?? null,
+  };
+}
+
+export function mergeCompareOptions(
+  current: PlayerOption[],
+  incoming: PlayerOption[],
+): PlayerOption[] {
+  const byId = new Map(current.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    const existing = byId.get(item.id);
+    if (existing && isResolvedCompareHandle(existing.handle, existing.id)) {
+      if (!isResolvedCompareHandle(item.handle, item.id)) {
+        continue;
+      }
+      byId.set(item.id, {
+        ...existing,
+        ...item,
+        handle: existing.handle,
+      });
+      continue;
+    }
+    byId.set(item.id, item);
+  }
+  return [...byId.values()];
 }

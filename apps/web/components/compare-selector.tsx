@@ -4,7 +4,12 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { MagnifyingGlassIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
 
 import { fetchPlayerOptions } from "@/lib/api";
-import { MAX_COMPARE_MESSAGE, MAX_COMPARE_PLAYERS, pickCompareSearchMatch } from "@/lib/compare";
+import {
+  MAX_COMPARE_MESSAGE,
+  MAX_COMPARE_PLAYERS,
+  compareChipLabel,
+  pickCompareSearchMatch,
+} from "@/lib/compare";
 import { formatCir } from "@/lib/format";
 import type { PlayerOption } from "@/lib/types";
 
@@ -152,11 +157,11 @@ export function CompareSelector({
             key={player.id}
             className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs"
           >
-            {player.handle}
+            {compareChipLabel(player)}
             <button
               type="button"
               onClick={() => onRemove(player.id)}
-              aria-label={`Remove ${player.handle}`}
+              aria-label={`Remove ${compareChipLabel(player)}`}
               className="rounded-full p-0.5 hover:bg-background"
             >
               <XIcon className="size-3" aria-hidden="true" />
