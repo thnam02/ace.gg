@@ -7,11 +7,11 @@ from app.providers.vlr_provider import (
     StaticVLRProvider,
     UnsupportedVLRResourceError,
 )
-from tests.vlr_fixtures import FIXTURES_DIR, load_match_html
+from tests.vlr_fixtures import EVENTS_DIR, MATCHES_DIR, load_match_html
 
 
 def test_file_provider_loads_match_html_by_id() -> None:
-    provider = FileVLRProvider(FIXTURES_DIR)
+    provider = FileVLRProvider(MATCHES_DIR)
     html = provider.get_match(900001)
     assert "Sentinels" in html
     assert "900001" in html
@@ -25,12 +25,20 @@ def test_static_provider_is_not_hard_coded_to_a_match() -> None:
         provider.get_match(900002)
 
 
+def test_file_provider_loads_event_html() -> None:
+    provider = FileVLRProvider(MATCHES_DIR, events_dir=EVENTS_DIR)
+    event_html = provider.get_event(91000)
+    assert "Champions 2024" in event_html
+
+    matches_html = provider.get_event_matches(91000)
+    assert "/900001/" in matches_html
+    assert "/999999/" in matches_html
+
+
 def test_unimplemented_vlr_resources_are_explicit() -> None:
-    provider = FileVLRProvider(FIXTURES_DIR)
-    with pytest.raises(UnsupportedVLRResourceError):
+    provider = FileVLRProvider(MATCHES_DIR, events_dir=EVENTS_DIR)
+    with pytest.raises(FileNotFoundError):
         provider.get_event(1)
-    with pytest.raises(UnsupportedVLRResourceError):
-        provider.get_event_matches(1)
     with pytest.raises(UnsupportedVLRResourceError):
         provider.get_player(1)
     with pytest.raises(UnsupportedVLRResourceError):

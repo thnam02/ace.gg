@@ -30,10 +30,13 @@ export function rosterMetrics(players: PlayerProfile[]) {
     return { count, avgAcs: 0, avgKd: 0, avgWinRate: 0 };
   }
 
+  const withMaps = players.filter((player) => player.stats.matches > 0);
+  const divisor = withMaps.length > 0 ? withMaps.length : count;
+
   return {
     count,
-    avgAcs: players.reduce((sum, player) => sum + player.stats.acs, 0) / count,
-    avgKd: players.reduce((sum, player) => sum + player.stats.kd, 0) / count,
-    avgWinRate: players.reduce((sum, player) => sum + player.stats.win_rate, 0) / count,
+    avgAcs: withMaps.reduce((sum, player) => sum + player.stats.acs, 0) / divisor,
+    avgKd: withMaps.reduce((sum, player) => sum + player.stats.kd, 0) / divisor,
+    avgWinRate: withMaps.reduce((sum, player) => sum + player.stats.win_rate, 0) / divisor,
   };
 }

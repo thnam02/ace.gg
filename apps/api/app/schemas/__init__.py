@@ -1,7 +1,10 @@
+from app.schemas.features import CIRFeatures, MapCIRFeatures, PlayerCIRFeatures
 from app.schemas.health import HealthResponse
 from app.schemas.ingestion import (
+    EventIngestionSummary,
     NormalizedAgent,
     NormalizedEvent,
+    NormalizedEventPageData,
     NormalizedMatchData,
     NormalizedMatchMap,
     NormalizedPlayer,
@@ -9,11 +12,36 @@ from app.schemas.ingestion import (
     NormalizedTeam,
 )
 from app.schemas.player import PlayerComparison, PlayerProfile, PlayerStats
+from app.schemas.player_api import (
+    PlayerCompareResponse,
+    PlayerDashboardStats,
+    PlayerDetailResponse,
+    PlayerIdentity,
+    PlayerMapsResponse,
+    PlayerMatchesResponse,
+    PlayerStatsResponse,
+    PlayerSummary,
+    StatsQueryParams,
+    TeamRef,
+)
+from app.schemas.stats import (
+    AggregateStatsRaw,
+    MapStatsDerived,
+    MapStatsFeatures,
+    MapStatsRaw,
+    PlayerStatsAggregate,
+    PlayerStatsScope,
+)
 
 __all__ = [
+    "CIRFeatures",
+    "MapCIRFeatures",
+    "PlayerCIRFeatures",
     "HealthResponse",
+    "EventIngestionSummary",
     "NormalizedAgent",
     "NormalizedEvent",
+    "NormalizedEventPageData",
     "NormalizedMatchData",
     "NormalizedMatchMap",
     "NormalizedPlayer",
@@ -22,4 +50,20 @@ __all__ = [
     "PlayerComparison",
     "PlayerProfile",
     "PlayerStats",
+    "PlayerCompareResponse",
+    "PlayerDetailResponse",
+    "PlayerDashboardStats",
+    "PlayerIdentity",
+    "PlayerMapsResponse",
+    "PlayerMatchesResponse",
+    "PlayerStatsResponse",
+    "PlayerSummary",
+    "StatsQueryParams",
+    "TeamRef",
+    "AggregateStatsRaw",
+    "MapStatsDerived",
+    "MapStatsFeatures",
+    "MapStatsRaw",
+    "PlayerStatsAggregate",
+    "PlayerStatsScope",
 ]

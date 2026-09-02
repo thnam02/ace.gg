@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.event import Event
     from app.models.match_map import MatchMap
     from app.models.team import Team
+    from app.models.team_rating_snapshot import TeamRatingSnapshot
 
 
 class Match(UUIDPrimaryKeyMixin, Base):
@@ -67,6 +68,12 @@ class Match(UUIDPrimaryKeyMixin, Base):
     )
     maps: Mapped[list[MatchMap]] = relationship(
         "MatchMap",
+        back_populates="match",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    rating_snapshots: Mapped[list[TeamRatingSnapshot]] = relationship(
+        "TeamRatingSnapshot",
         back_populates="match",
         cascade="all, delete-orphan",
         passive_deletes=True,

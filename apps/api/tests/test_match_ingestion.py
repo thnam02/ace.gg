@@ -7,11 +7,11 @@ from app.models import Agent, Event, Match, MatchMap, Player, PlayerMapStats, Te
 from app.parsers.match_parser import MatchParser
 from app.providers.vlr_provider import FileVLRProvider
 from app.services.match_ingestion import MatchIngestionService
-from tests.vlr_fixtures import FIXTURES_DIR
+from tests.vlr_fixtures import MATCHES_DIR
 
 
 def _ingest_fixture(db_session: Session, match_id: int) -> Match:
-    html = FileVLRProvider(FIXTURES_DIR).get_match(match_id)
+    html = FileVLRProvider(MATCHES_DIR).get_match(match_id)
     data = MatchParser().parse(html)
     return MatchIngestionService(db_session).ingest(data)
 
@@ -35,7 +35,7 @@ def test_ingestion_is_idempotent(db_session: Session) -> None:
 
 
 def test_reingest_updates_existing_stats(db_session: Session) -> None:
-    html = FileVLRProvider(FIXTURES_DIR).get_match(900001)
+    html = FileVLRProvider(MATCHES_DIR).get_match(900001)
     parser = MatchParser()
     data = parser.parse(html)
     service = MatchIngestionService(db_session)
