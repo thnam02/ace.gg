@@ -20,6 +20,8 @@ EXPECTED_TABLES = {
     "match_maps",
     "player_map_stats",
     "team_rating_snapshots",
+    "metric_versions",
+    "player_metric_snapshots",
 }
 
 MIGRATION_DATABASE_URL = os.environ.get(
