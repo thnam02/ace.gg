@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
+    docs_enabled: bool = True
     data_provider: str = "mock"
     vlrggapi_base_url: str = "http://127.0.0.1:3001"
     vlr_circuit_url: str = "https://www.vlr.gg/vct"

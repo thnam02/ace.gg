@@ -1,6 +1,7 @@
 # Environment
 .env
 .env.local
+.env.production
 .env.*.local
 
 # Python
@@ -31,3 +32,7 @@ postgres_data/
 
 # Local vlrggapi raw JSON cache
 data/vlrggapi_raw/
+
+# Local database dumps — never commit CIR snapshots
+deploy/backups/
+*.dump

@@ -139,6 +139,57 @@ describe("compare selector", () => {
     expect(html).toContain("LEVIATÁN");
     expect(html).toContain("99.8");
   });
+
+  it("shows the player handle instead of a truncated id in selected chips", () => {
+    const id = "a4f73e58-a086-4238-ab2b-02767a7057c8";
+    const named = renderToStaticMarkup(
+      <CompareSelector
+        selectedIds={[id]}
+        selectedChips={[
+          {
+            id,
+            handle: "Neon",
+            real_name: null,
+            team: null,
+            role: "Sentinel",
+            tier: "T1",
+            cir: 99.8,
+            rounds: 1487,
+            sample_status: "ESTABLISHED",
+            reliability: "HIGH",
+          },
+        ]}
+        onAdd={() => null}
+        onRemove={() => undefined}
+      />,
+    );
+    expect(named).toContain("Neon");
+    expect(named).not.toContain("a4f73e58");
+
+    const unresolved = renderToStaticMarkup(
+      <CompareSelector
+        selectedIds={[id]}
+        selectedChips={[
+          {
+            id,
+            handle: id.slice(0, 8),
+            real_name: null,
+            team: null,
+            role: null,
+            tier: null,
+            cir: null,
+            rounds: 0,
+            sample_status: null,
+            reliability: null,
+          },
+        ]}
+        onAdd={() => null}
+        onRemove={() => undefined}
+      />,
+    );
+    expect(unresolved).toContain("Loading…");
+    expect(unresolved).not.toContain("a4f73e58");
+  });
 });
 
 describe("compare cards", () => {

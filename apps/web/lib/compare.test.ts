@@ -5,9 +5,12 @@ import {
   MAX_COMPARE_PLAYERS,
   addCompareId,
   compareCardGridClass,
+  compareChipLabel,
   compareDensity,
   compareEmptyMessage,
   compareHref,
+  compareOptionFromCir,
+  isResolvedCompareHandle,
   parseCompareIds,
   pickCompareSearchMatch,
   removeCompareId,
@@ -53,5 +56,36 @@ describe("compare selection", () => {
     expect(pickCompareSearchMatch("som", players)?.handle).toBe("something");
     expect(pickCompareSearchMatch("e", players)).toBeNull();
     expect(pickCompareSearchMatch("", players)).toBeNull();
+  });
+
+  it("never uses a truncated player id as the selected chip label", () => {
+    const id = "a4f73e58-a086-4238-ab2b-02767a7057c8";
+    expect(compareChipLabel({ id, handle: id.slice(0, 8) })).toBe("Loading…");
+    expect(compareChipLabel({ id, handle: "Neon" })).toBe("Neon");
+    expect(isResolvedCompareHandle("a4f73e58", id)).toBe(false);
+    expect(compareOptionFromCir({
+      player_id: id,
+      handle: "Neon",
+      team: null,
+      role: "Sentinel",
+      cir: 99.8,
+      raw_cir: 99.8,
+      reliability: "HIGH",
+      reliability_pct: null,
+      sample_status: "ESTABLISHED",
+      rounds: 1487,
+      maps: 40,
+      combat_factor: null,
+      kpr: null,
+      dpr: null,
+      expected_kpr: null,
+      expected_dpr: null,
+      kpr_residual: null,
+      negative_dpr_residual: null,
+      metric_version: "v0.2-real-2026",
+      reference_period_start: null,
+      reference_period_end: null,
+      interpretation: null,
+    }).handle).toBe("Neon");
   });
 });

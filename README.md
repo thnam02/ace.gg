@@ -78,4 +78,19 @@ docker compose up --build
 
 - Web: [http://localhost:3000](http://localhost:3000)
 - API: [http://localhost:8000](http://localhost:8000)
-- Postgres: `localhost:5432`
+- Postgres: `127.0.0.1:5432`
+
+Daily VCT sync is opt-in:
+
+```bash
+docker compose --profile sync up -d vct-sync
+```
+
+## First production deploy
+
+Do not start from an empty database and do not retrain CIR.
+
+1. Dump the current laptop database: `./deploy/dump-postgres.sh`
+2. Copy `deploy/env.production.example` to `.env` on the server and replace `CHANGE_ME`
+3. Restore the dump, then start API + web — see [deploy/README.md](deploy/README.md)
+

@@ -8,15 +8,21 @@ import { CompareDrivers } from "@/components/compare-drivers";
 import { ComparePlayerCard } from "@/components/compare-player-card";
 import { CompareScouting } from "@/components/compare-scouting";
 import { CompareSelector } from "@/components/compare-selector";
-import { fetchComparison } from "@/lib/api";
+import { fetchComparison, fetchPlayerCir, fetchPlayerDetail } from "@/lib/api";
 import {
   MAX_COMPARE_PLAYERS,
   addCompareId,
   compareCardGridClass,
   compareEmptyMessage,
   compareHref,
+  compareOptionFromCir,
+  compareOptionFromDetail,
+  compareOptionFromEntry,
+  mergeCompareOptions,
   parseCompareIds,
+  pendingCompareOption,
   removeCompareId,
+  unknownCompareOption,
 } from "@/lib/compare";
 import type { PlayerCompareEntry, PlayerOption } from "@/lib/types";
 
@@ -50,6 +56,21 @@ export function CompareWorkspace({ initialIds }: CompareWorkspaceProps) {
   }
 
   useEffect(() => {
+    if (ids.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(ids.map((id) => resolveSelectedChip(id))).then((resolved) => {
+      if (!cancelled) {
+        setChips((current) => mergeCompareOptions(current, resolved));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ids, idsKey]);
+
+  useEffect(() => {
     if (ids.length < 2) {
       return;
     }
@@ -62,7 +83,9 @@ export function CompareWorkspace({ initialIds }: CompareWorkspaceProps) {
         }
         setComparison({ players: payload.players, notes: payload.notes, key });
         setError(null);
-        setChips((current) => mergeChips(current, payload.players));
+        setChips((current) =>
+          mergeCompareOptions(current, payload.players.map(compareOptionFromEntry)),
+        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -85,8 +108,8 @@ export function CompareWorkspace({ initialIds }: CompareWorkspaceProps) {
   const notes = comparison?.key === idsKey ? comparison.notes : "";
 
   const selectedChips = useMemo(
-    () => ids.map((id) => chips.find((chip) => chip.id === id) ?? placeholderChip(id, players)),
-    [chips, ids, players],
+    () => ids.map((id) => chips.find((chip) => chip.id === id) ?? pendingCompareOption(id)),
+    [chips, ids],
   );
 
   return (
@@ -147,28 +170,22 @@ export function CompareWorkspace({ initialIds }: CompareWorkspaceProps) {
   );
 }
 
-function placeholderChip(id: string, players: PlayerCompareEntry[]): PlayerOption {
-  const match = players.find((entry) => entry.player.id === id);
-  return {
-    id,
-    handle: match?.player.handle ?? id.slice(0, 8),
-    real_name: match?.player.real_name ?? null,
-    team: match?.player.team ?? null,
-    role: match?.cir?.role ?? null,
-    tier: match?.cir?.tier ?? null,
-    cir: match?.cir?.cir ?? null,
-    rounds: match?.cir?.rounds ?? 0,
-    sample_status: match?.cir?.sample_status ?? null,
-    reliability: match?.cir?.reliability ?? null,
-  };
-}
-
-function mergeChips(current: PlayerOption[], entries: PlayerCompareEntry[]): PlayerOption[] {
-  const next = [...current];
-  for (const entry of entries) {
-    if (!next.some((item) => item.id === entry.player.id)) {
-      next.push(placeholderChip(entry.player.id, entries));
+async function resolveSelectedChip(id: string) {
+  try {
+    const cir = await fetchPlayerCir(id);
+    if (cir?.handle) {
+      return compareOptionFromCir(cir);
     }
+  } catch {
+    // Identity lookup still has the handle if CIR is missing.
   }
-  return next;
+  try {
+    const detail = await fetchPlayerDetail(id);
+    if (detail?.player.handle) {
+      return compareOptionFromDetail(detail);
+    }
+  } catch {
+    // Fall through to the unknown-player chip.
+  }
+  return unknownCompareOption(id);
 }
