@@ -170,6 +170,10 @@ def test_ablation_variants_cover_config(db_session: Session) -> None:
             assert variant in variants
     without_kast = next(row for row in ablation.results if row.variant == "without_kast")
     assert "kast_residual" not in without_kast.features_used
+    without_apr = next(row for row in ablation.results if row.variant == "without_apr")
+    assert "apr_residual" not in without_apr.features_used
+    assert without_apr.impact in {None, "IMPROVES", "NEGLIGIBLE", "HARMS", "STRONGLY_HARMS"}
+    assert without_apr.validation_mae is not None or without_apr.validation_rmse is None
 
 
 def test_shrinkage_sweep_covers_k_values(db_session: Session) -> None:
@@ -204,6 +208,19 @@ def test_deterministic_outputs_on_fixture(db_session: Session) -> None:
         second.ablation_results.full_model_validation_rmse
     )
     assert first.dataset_quality.total_rounds == second.dataset_quality.total_rounds
+
+
+def test_v02_recommendation_is_evidence_based(db_session: Session) -> None:
+    _seed_validation_graph(db_session)
+    result = _validation_service(db_session).validate_cir_v01()
+    assert result.v02_recommendation.decision in {
+        "KEEP CIR v0.1",
+        "REFINE TO CIR v0.2",
+        "RETHINK MODEL",
+    }
+    assert result.v02_recommendation.reasons
+    assert result.component_analysis.coefficient_signs
+    assert result.context_adjustment_audit.overall
 
 
 def test_train_only_baseline_no_test_leakage(db_session: Session) -> None:

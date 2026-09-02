@@ -22,6 +22,14 @@ class FeatureEngine:
         self._adr_model = adr_model
         self._clutch_prior = clutch_prior
 
+    @property
+    def adr_model(self) -> AdrRegressionModel:
+        return self._adr_model
+
+    @property
+    def clutch_prior(self) -> ClutchPrior:
+        return self._clutch_prior
+
     def from_raw(
         self,
         raw: MapStatsRaw,
@@ -94,4 +102,3 @@ class FeatureEngine:
             clutch_attempts=clutch.clutch_attempts,
             clutch_effective_sample_size=clutch.effective_sample_size,
         )
-

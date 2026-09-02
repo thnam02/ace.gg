@@ -18,6 +18,20 @@ from app.schemas.ingestion import EventIngestionSummary
 from app.services.clutch_coverage import measure_clutch_coverage
 from app.services.context_baseline_service import observation_from_player_map_stats
 from app.services.map_completeness import summarize_map_completeness
+from app.services.scale_event_set import SCALE_EVENT_SET
+
+_EVENT_REGION_BY_ID = {item.vlr_event_id: item.region for item in SCALE_EVENT_SET}
+
+
+@dataclass
+class RoleRoundDistribution:
+    observations: int = 0
+    players: int = 0
+    total_rounds: int = 0
+    mean_rounds: float = 0.0
+    median_rounds: float = 0.0
+    p25_rounds: float = 0.0
+    p75_rounds: float = 0.0
 
 
 @dataclass
@@ -34,6 +48,7 @@ class DatasetAuditReport:
     observations_by_map: dict[str, int] = field(default_factory=dict)
     observations_by_tier: dict[str, int] = field(default_factory=dict)
     observations_by_event: dict[str, int] = field(default_factory=dict)
+    observations_by_region: dict[str, int] = field(default_factory=dict)
     missing_rounds: int = 0
     missing_adr: int = 0
     missing_kast: int = 0
@@ -64,6 +79,8 @@ class DatasetAuditReport:
     t2_maps_incomplete: int = 0
     t2_maps_empty: int = 0
     t2_complete_map_pct: float = 0.0
+    complete_map_pct_by_event: dict[str, float] = field(default_factory=dict)
+    complete_map_pct_by_tier: dict[str, float] = field(default_factory=dict)
     invalid_agent_values: list[str] = field(default_factory=list)
     unknown_agent_rows: int = 0
     maps_eligible_for_cir: int = 0
@@ -75,6 +92,7 @@ class DatasetAuditReport:
     context_baseline_coverage: dict[str, int] = field(default_factory=dict)
     eligible_players_by_rounds: dict[int, int] = field(default_factory=dict)
     rounds_per_player: dict[str, int] = field(default_factory=dict)
+    role_round_distributions: dict[str, RoleRoundDistribution] = field(default_factory=dict)
 
     @property
     def players_with_100_rounds(self) -> int:
@@ -92,11 +110,15 @@ class DatasetAuditReport:
     def players_with_1000_rounds(self) -> int:
         return self.eligible_players_by_rounds.get(1000, 0)
 
+    @property
+    def players_with_1500_rounds(self) -> int:
+        return self.eligible_players_by_rounds.get(1500, 0)
+
 
 class DatasetAuditService:
     """Summarize canonical PostgreSQL dataset quality."""
 
-    ROUND_THRESHOLDS: tuple[int, ...] = (100, 250, 500, 1000)
+    ROUND_THRESHOLDS: tuple[int, ...] = (100, 250, 500, 1000, 1500)
 
     def audit(
         self,
@@ -122,6 +144,7 @@ class DatasetAuditService:
             select(PlayerMapStats).options(
                 selectinload(PlayerMapStats.agent),
                 selectinload(PlayerMapStats.player),
+                selectinload(PlayerMapStats.team),
                 selectinload(PlayerMapStats.match_map)
                 .selectinload(MatchMap.match)
                 .selectinload(Match.event),
@@ -130,6 +153,7 @@ class DatasetAuditService:
 
         observations: list[ContextObservation] = []
         player_rounds: dict[str, int] = {}
+        role_player_rounds: dict[str, dict[str, int]] = {}
         invalid_agents: dict[str, int] = {}
         for row in stats_rows:
             role = row.agent.role if row.agent else UNKNOWN_AGENT_NAME
@@ -166,9 +190,18 @@ class DatasetAuditService:
                 report.observations_by_event[event.name] = (
                     report.observations_by_event.get(event.name, 0) + 1
                 )
+                region = event.region or _EVENT_REGION_BY_ID.get(event.vlr_event_id)
+                if not region and row.team is not None:
+                    region = row.team.region
+                region_key = region or UNKNOWN_AGENT_NAME
+                report.observations_by_region[region_key] = (
+                    report.observations_by_region.get(region_key, 0) + 1
+                )
 
             handle = row.player.handle if row.player else str(row.player_id)
             player_rounds[handle] = player_rounds.get(handle, 0) + row.rounds
+            role_rounds = role_player_rounds.setdefault(role, {})
+            role_rounds[handle] = role_rounds.get(handle, 0) + row.rounds
             observations.append(observation_from_player_map_stats(row))
 
         report.invalid_agent_values = sorted(invalid_agents)
@@ -177,6 +210,13 @@ class DatasetAuditService:
             report.eligible_players_by_rounds[threshold] = sum(
                 1 for total in player_rounds.values() if total >= threshold
             )
+        report.role_round_distributions = {
+            role: _role_round_distribution(
+                rounds_by_player,
+                observation_count=report.observations_by_role.get(role, 0),
+            )
+            for role, rounds_by_player in role_player_rounds.items()
+        }
 
         completeness = summarize_map_completeness(session)
         report.maps_complete = completeness.maps_complete
@@ -197,6 +237,12 @@ class DatasetAuditService:
             report.t2_maps_incomplete = t2.maps_incomplete
             report.t2_maps_empty = t2.maps_empty
             report.t2_complete_map_pct = t2.complete_map_pct
+        report.complete_map_pct_by_tier = {
+            tier: item.complete_map_pct for tier, item in completeness.by_tier.items()
+        }
+        report.complete_map_pct_by_event = {
+            event_name: item.complete_map_pct for event_name, item in completeness.by_event.items()
+        }
         expected_slots = completeness.maps_played * 10
         if expected_slots:
             missing_slots = max(0, expected_slots - report.player_map_stats)
@@ -260,9 +306,17 @@ class DatasetAuditService:
             f"  complete_map_pct: {report.complete_map_pct:.1f}%",
             f"  t1_complete_map_pct: {report.t1_complete_map_pct:.1f}%",
             f"  t2_complete_map_pct: {report.t2_complete_map_pct:.1f}%",
-            "",
-            "observations_by_role:",
+            "  complete_map_pct_by_tier:",
         ]
+        _append_pcts(lines, report.complete_map_pct_by_tier)
+        lines.append("  complete_map_pct_by_event:")
+        _append_pcts(lines, report.complete_map_pct_by_event)
+        lines.extend(
+            [
+                "",
+                "observations_by_role:",
+            ]
+        )
         _append_counts(lines, report.observations_by_role)
         lines.append("observations_by_agent:")
         _append_counts(lines, report.observations_by_agent)
@@ -272,6 +326,8 @@ class DatasetAuditService:
         _append_counts(lines, report.observations_by_tier)
         lines.append("observations_by_event:")
         _append_counts(lines, report.observations_by_event)
+        lines.append("observations_by_region:")
+        _append_counts(lines, report.observations_by_region)
         lines.extend(
             [
                 f"invalid_agent_values: {report.invalid_agent_values}",
@@ -307,6 +363,7 @@ class DatasetAuditService:
                 f"  players_with_250_rounds: {report.players_with_250_rounds}",
                 f"  players_with_500_rounds: {report.players_with_500_rounds}",
                 f"  players_with_1000_rounds: {report.players_with_1000_rounds}",
+                f"  players_with_1500_rounds: {report.players_with_1500_rounds}",
                 "",
                 "clutch:",
                 f"  clutch_available_rows: {report.clutch_available_rows}",
@@ -337,6 +394,14 @@ class DatasetAuditService:
             count = report.eligible_players_by_rounds.get(threshold, 0)
             denom = report.players or 1
             lines.append(f"  {threshold}: {count} ({_pct(count, denom)})")
+        lines.append("role_round_distributions:")
+        for role, dist in sorted(report.role_round_distributions.items()):
+            lines.append(
+                f"  {role}: observations={dist.observations} players={dist.players} "
+                f"rounds={dist.total_rounds} mean={dist.mean_rounds:.1f} "
+                f"median={dist.median_rounds:.1f} p25={dist.p25_rounds:.1f} "
+                f"p75={dist.p75_rounds:.1f}"
+            )
         return "\n".join(lines)
 
 
@@ -354,11 +419,48 @@ def _context_coverage(observations: list[ContextObservation]) -> dict[str, int]:
     return coverage
 
 
+def _role_round_distribution(
+    rounds_by_player: dict[str, int],
+    *,
+    observation_count: int,
+) -> RoleRoundDistribution:
+    values = list(rounds_by_player.values())
+    if not values:
+        return RoleRoundDistribution(observations=observation_count)
+    return RoleRoundDistribution(
+        observations=observation_count,
+        players=len(values),
+        total_rounds=sum(values),
+        mean_rounds=sum(values) / len(values),
+        median_rounds=_quantile(values, 0.5),
+        p25_rounds=_quantile(values, 0.25),
+        p75_rounds=_quantile(values, 0.75),
+    )
+
+
+def _quantile(values: list[int], q: float) -> float:
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    index = q * (len(ordered) - 1)
+    lower = int(index)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = index - lower
+    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+
+
 def _append_counts(lines: list[str], counts: dict[str, int]) -> None:
     if not counts:
         return
     for key, value in sorted(counts.items()):
         lines.append(f"  {key}: {value}")
+
+
+def _append_pcts(lines: list[str], percents: dict[str, float]) -> None:
+    if not percents:
+        return
+    for key, value in sorted(percents.items()):
+        lines.append(f"    {key}: {value:.1f}%")
 
 
 def _pct(count: int, total: int) -> str:

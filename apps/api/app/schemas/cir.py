@@ -57,3 +57,4 @@ class CIRTrainingResult(BaseModel):
     clutch_missing_rows: int = 0
     clutch_coverage_pct: float = 0.0
     clutch_feature_enabled: bool = True
+    maps_excluded_unknown_agent: int = 0

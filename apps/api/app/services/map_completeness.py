@@ -55,6 +55,7 @@ class MapCompletenessSummary:
     incomplete_map_ids: set[UUID] = field(default_factory=set)
     empty_map_ids: set[UUID] = field(default_factory=set)
     by_tier: dict[str, TierMapCompleteness] = field(default_factory=dict)
+    by_event: dict[str, TierMapCompleteness] = field(default_factory=dict)
 
     @property
     def complete_map_pct(self) -> float:
@@ -92,20 +93,26 @@ def summarize_map_completeness(session: Session) -> MapCompletenessSummary:
         classification = classify_player_stat_count(count)
         event = match_map.match.event if match_map.match is not None else None
         tier = event.tier if event is not None and event.tier else "Unknown"
+        event_name = event.name if event is not None else "Unknown"
         tier_summary = summary.by_tier.setdefault(tier, TierMapCompleteness())
+        event_summary = summary.by_event.setdefault(event_name, TierMapCompleteness())
         tier_summary.maps_played += 1
+        event_summary.maps_played += 1
         if classification is MapCompleteness.COMPLETE:
             summary.maps_complete += 1
             summary.complete_map_ids.add(match_map.id)
             tier_summary.maps_complete += 1
+            event_summary.maps_complete += 1
         elif classification is MapCompleteness.EMPTY:
             summary.maps_empty += 1
             summary.empty_map_ids.add(match_map.id)
             tier_summary.maps_empty += 1
+            event_summary.maps_empty += 1
         else:
             summary.maps_incomplete += 1
             summary.incomplete_map_ids.add(match_map.id)
             tier_summary.maps_incomplete += 1
+            event_summary.maps_incomplete += 1
     return summary
 
 

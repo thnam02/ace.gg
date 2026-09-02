@@ -32,6 +32,8 @@ class VlrggApiClient:
         self._client = client or httpx.Client(base_url=self._base_url, timeout=timeout)
         self._request_delay = request_delay
         self._max_retries = max_retries
+        self.http_429_count = 0
+        self._cooldown_until = 0.0
 
     @property
     def base_url(self) -> str:
@@ -48,15 +50,27 @@ class VlrggApiClient:
     ) -> dict[str, Any]:
         last_error: VlrggApiHttpError | None = None
         for attempt in range(self._max_retries + 1):
+            cooldown = self._cooldown_until - time.time()
+            if cooldown > 0:
+                time.sleep(cooldown)
             try:
                 response = self._client.get(path, params=params)
             except httpx.HTTPError as exc:
                 raise VlrggApiHttpError(0, path, str(exc)) from exc
 
             if response.status_code in _RETRYABLE_STATUS_CODES and attempt < self._max_retries:
+                if response.status_code == 429:
+                    self.http_429_count += 1
                 last_error = VlrggApiHttpError(response.status_code, path)
-                time.sleep(_retry_delay(response, attempt))
+                delay = _retry_delay(response, attempt)
+                if response.status_code == 429:
+                    self._cooldown_until = time.time() + delay
+                time.sleep(delay)
                 continue
+
+            if response.status_code == 429:
+                self.http_429_count += 1
+                self._cooldown_until = time.time() + _retry_delay(response, attempt)
 
             if response.status_code != 200:
                 raise VlrggApiHttpError(response.status_code, path)
@@ -110,7 +124,10 @@ def _retry_delay(response: httpx.Response, attempt: int) -> float:
     retry_after = response.headers.get("Retry-After")
     if retry_after:
         try:
-            return min(float(retry_after), 60.0)
+            return min(float(retry_after), 120.0)
         except ValueError:
             pass
-    return min(2.0**attempt, 30.0)
+    delay = min(2.0**attempt, 90.0)
+    if response.status_code == 429:
+        return max(delay, 20.0)
+    return delay

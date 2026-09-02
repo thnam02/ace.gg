@@ -66,6 +66,35 @@ class EventIngestionSummary(BaseModel):
     maps_empty: int = 0
     dry_run: bool = False
     errors: list[str] = Field(default_factory=list)
+    http_429_count: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+
+
+class BulkIngestionSummary(BaseModel):
+    events_requested: int = 0
+    events_completed: int = 0
+    events_failed: int = 0
+    matches_discovered: int = 0
+    matches_ingested: int = 0
+    matches_skipped: int = 0
+    matches_failed: int = 0
+    maps: int = 0
+    player_map_stats: int = 0
+    resolved_by_event_roster: int = 0
+    resolved_by_team_roster: int = 0
+    resolved_by_history: int = 0
+    resolved_by_search: int = 0
+    ambiguous: int = 0
+    unresolved: int = 0
+    complete_maps: int = 0
+    incomplete_maps: int = 0
+    empty_maps: int = 0
+    http_429_count: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    dry_run: bool = False
+    event_summaries: list[EventIngestionSummary] = Field(default_factory=list)
 
 
 class NormalizedPlayerMapStats(BaseModel):

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -323,3 +325,64 @@ def test_live_match_envelope_and_flat_scores() -> None:
     assert data.maps[0].rounds_played == 19
     assert data.maps[0].player_stats[0].rounds == 19
     assert data.maps[0].player_stats[0].player.vlr_player_id == 10
+
+
+def test_parse_vlr_weekday_datetime() -> None:
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from app.normalizers.vlr_api_parsing import parse_datetime_text
+
+    parsed = parse_datetime_text("Saturday, August 8 9:35 PM AEST", default_year=2026)
+    assert parsed is not None
+    expected = datetime(2026, 8, 8, 21, 35, tzinfo=timezone(timedelta(hours=10))).astimezone(UTC)
+    assert parsed == expected
+    assert parse_datetime_text("Saturday, August 8 9:35 PM AEST") is None
+
+
+def test_ingest_json_events_continue_on_error(db_session: Session) -> None:
+    import pytest
+
+    from app.providers.vlrggapi_errors import VlrggApiHttpError
+    from app.services.json_event_ingestion import ingest_json_events
+
+    provider = StaticVlrApiIngestionProvider(
+        {900001: match_900001_bo3()},
+        events={91000: event_91000()},
+        event_matches={91000: {"matches": [{"match_id": "900001"}]}},
+    )
+    bulk = ingest_json_events(
+        db_session,
+        [91000, 99999],
+        continue_on_error=True,
+        provider=provider,
+    )
+    assert bulk.events_requested == 2
+    assert bulk.events_completed == 1
+    assert bulk.events_failed == 1
+    assert bulk.matches_ingested == 1
+    assert bulk.event_summaries[1].matches_failed == 1
+
+    with pytest.raises(VlrggApiHttpError):
+        ingest_json_events(
+            db_session,
+            [88888],
+            continue_on_error=False,
+            provider=provider,
+        )
+
+
+def test_cache_hits_and_misses(db_session: Session, tmp_path: Path) -> None:
+    cache = VlrggApiRawCache(tmp_path)
+    static = StaticVlrApiIngestionProvider(
+        {900001: match_900001_bo3()},
+        events={91000: event_91000()},
+        event_matches={91000: {"matches": [{"match_id": "900001"}]}},
+    )
+    provider = CachingVlrApiIngestionProvider(static, cache)
+    from app.services.json_event_ingestion import ingest_json_event
+
+    first = ingest_json_event(db_session, 91000, provider=provider)
+    assert first.cache_misses >= 1
+    second = ingest_json_event(db_session, 91000, provider=provider)
+    assert second.cache_hits >= 1
+    assert second.cache_misses == 0

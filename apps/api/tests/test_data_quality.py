@@ -457,6 +457,10 @@ def test_dataset_audit_counts(db_session: Session) -> None:
     assert "resolved_by_team_roster:" in text
     assert "maps_complete:" in text
     assert "players_with_100_rounds:" in text
+    assert "players_with_1500_rounds:" in text
+    assert "observations_by_region:" in text
+    assert "complete_map_pct_by_event:" in text
+    assert report.observations_by_region.get("INTL", 0) == 1
     assert "agent_map_tier:" in text
     scale = DatasetScaleReadinessService().assess(report)
     assert scale.status == "NOT_READY"

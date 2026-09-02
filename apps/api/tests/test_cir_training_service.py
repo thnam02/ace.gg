@@ -198,3 +198,24 @@ def test_evaluation_reports_rmse(db_session: Session) -> None:
     _seed_training_graph(db_session)
     result = _cir_service(db_session).train_cir_v01()
     assert result.evaluation.train_rmse is not None
+
+
+def test_real_experiment_does_not_overwrite_v01(db_session: Session) -> None:
+    _seed_training_graph(db_session)
+    CIRTrainingService(db_session, require_complete_maps=False).train_cir_v01()
+    CIRTrainingService(
+        db_session,
+        require_complete_maps=False,
+        persist_version="v0.1-real-2026",
+        events_used=[2765, 2857],
+    ).train_cir_v01()
+
+    versions = list(db_session.scalars(select(MetricVersion)).all())
+    names = {(item.name, item.version) for item in versions}
+    assert (CIR_METRIC_NAME, CIR_V01_VERSION) in names
+    assert (CIR_METRIC_NAME, "v0.1-real-2026") in names
+    real = next(item for item in versions if item.version == "v0.1-real-2026")
+    assert real.regularization_parameters["events_used"] == [2765, 2857]
+    assert "feature_enabled" in real.regularization_parameters
+    assert "residual_adr" in real.regularization_parameters
+    assert "bayesian_priors" in real.regularization_parameters

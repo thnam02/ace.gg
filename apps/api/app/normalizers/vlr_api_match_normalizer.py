@@ -16,6 +16,7 @@ from app.normalizers.vlr_api_parsing import (
     parse_vlr_id,
     team_tag_from_name,
     unwrap_match_payload,
+    year_from_text,
 )
 from app.parsers.agents import (
     UNKNOWN_AGENT_NAME,
@@ -72,7 +73,15 @@ class VlrApiMatchNormalizer:
             status=str(match_data.get("status") or None),
         )
 
-        played_at = parse_datetime_text(str(match_data.get("date") or ""))
+        default_year = normalized_event.season_year or (
+            normalized_event.start_date.year if normalized_event.start_date else None
+        )
+        if default_year is None:
+            default_year = year_from_text(normalized_event.name)
+        played_at = parse_datetime_text(
+            str(match_data.get("date") or ""),
+            default_year=default_year,
+        )
         maps = self._normalize_maps(
             match_data,
             team_a=team_a,
