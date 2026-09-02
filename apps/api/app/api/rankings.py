@@ -27,7 +27,7 @@ def list_cir_rankings(
     include_low_sample: bool = Query(False),
     sample_status: str | None = Query(None),
     metric_version: str | None = Query(None),
-    limit: int = Query(50, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=2000),
     offset: int = Query(0, ge=0),
     service: CirRankingService = Depends(get_ranking_service),
 ) -> CirRankingResponse:

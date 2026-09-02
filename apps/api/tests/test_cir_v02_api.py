@@ -131,8 +131,8 @@ def test_rankings_include_provisional_and_pagination(
     ).json()
     assert page_two["players"][0]["handle"] == "zekken"
     assert page_two["players"][0]["rank"] == 2
-    assert client.get("/rankings/cir", params={"limit": 500}).status_code == 200
-    assert client.get("/rankings/cir", params={"limit": 501}).status_code == 422
+    assert client.get("/rankings/cir", params={"limit": 2000}).status_code == 200
+    assert client.get("/rankings/cir", params={"limit": 2001}).status_code == 422
 
 
 def test_rankings_are_deterministic(client: TestClient, db_session: Session) -> None:

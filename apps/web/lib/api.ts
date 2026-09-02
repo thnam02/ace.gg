@@ -125,6 +125,8 @@ export async function fetchPlayerOptions(options?: {
   return apiFetch<PlayerOptionsResponse>(`/players/options?${params.toString()}`);
 }
 
+export const CIR_RANKING_FETCH_LIMIT = 2000;
+
 export async function fetchCirRankings(options?: {
   includeProvisional?: boolean;
   limit?: number;
@@ -134,7 +136,7 @@ export async function fetchCirRankings(options?: {
   if (options?.includeProvisional) {
     params.set("include_provisional", "true");
   }
-  params.set("limit", String(options?.limit ?? 50));
+  params.set("limit", String(options?.limit ?? CIR_RANKING_FETCH_LIMIT));
   params.set("offset", String(options?.offset ?? 0));
   const query = params.toString();
   return apiFetch<CirRankingResponse>(`/rankings/cir?${query}`);

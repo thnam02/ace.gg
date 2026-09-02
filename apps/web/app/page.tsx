@@ -16,7 +16,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   let metadata = null;
   try {
     [rankings, metadata] = await Promise.all([
-      fetchCirRankings({ includeProvisional, limit: 100 }),
+      fetchCirRankings({ includeProvisional }),
       fetchCirMetadata(),
     ]);
   } catch {
@@ -65,6 +65,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           </section>
           <CirRankings
             players={rankings.players}
+            total={rankings.total}
             includeProvisional={includeProvisional}
             tooltip={tooltip}
           />

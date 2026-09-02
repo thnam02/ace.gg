@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { ArrowsLeftRightIcon } from "@phosphor-icons/react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowsLeftRightIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
 import { compareHref } from "@/lib/compare";
 import { formatCir, formatRounds } from "@/lib/format";
+import {
+  rankingPageBounds,
+  rankingPageTokens,
+} from "@/lib/ranking-pagination";
 import type { CirRankingPlayer } from "@/lib/types";
 
 type CirRankingsProps = {
   players: CirRankingPlayer[];
+  total?: number;
   includeProvisional: boolean;
   tooltip: string;
   toggleHref?: { on: string; off: string };
@@ -21,6 +26,7 @@ type CirRankingsProps = {
 
 export function CirRankings({
   players,
+  total,
   includeProvisional,
   tooltip,
   toggleHref = { on: "/?include_provisional=1", off: "/" },
@@ -29,8 +35,15 @@ export function CirRankings({
   title = "CIR rankings",
 }: CirRankingsProps) {
   const router = useRouter();
+  const tableTopRef = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<string[]>(initialSelected);
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageScope, setPageScope] = useState(includeProvisional);
+  if (includeProvisional !== pageScope) {
+    setPageScope(includeProvisional);
+    setPage(1);
+  }
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -46,6 +59,9 @@ export function CirRankings({
       );
     });
   }, [players, query]);
+  const bounds = rankingPageBounds(filtered.length, page);
+  const pagePlayers = filtered.slice(bounds.start, bounds.end);
+  const pageTokens = rankingPageTokens(bounds.safePage, bounds.totalPages);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -57,6 +73,11 @@ export function CirRankings({
       }
       return [...current, id];
     });
+  }
+
+  function goToPage(next: number) {
+    setPage(next);
+    tableTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 
   function openCompare() {
@@ -75,14 +96,26 @@ export function CirRankings({
   }
 
   return (
-    <section className="glass-panel overflow-hidden rounded-xl">
+    <section ref={tableTopRef} className="glass-panel overflow-hidden rounded-xl">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
-        <h2 className="text-sm font-medium text-foreground">{title}</h2>
+        <h2 className="text-sm font-medium text-foreground">
+          {title}
+          <span className="ml-2 font-sans text-xs font-normal text-muted-foreground">
+            {query.trim()
+              ? `${filtered.length} of ${players.length}`
+              : total != null && total > players.length
+                ? `${players.length} of ${total}`
+                : `${players.length} players`}
+          </span>
+        </h2>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search handle or team"
             aria-label="Search CIR players"
             className="w-44 rounded-md border border-white/10 bg-muted/60 px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground"
@@ -164,7 +197,7 @@ export function CirRankings({
                 </td>
               </tr>
             ) : (
-              filtered.map((player) => {
+              pagePlayers.map((player) => {
                 const checked = selectedSet.has(player.player_id);
                 const checkboxId = `select-${player.player_id}`;
                 return (
@@ -219,6 +252,88 @@ export function CirRankings({
           </tbody>
         </table>
       </div>
+      {filtered.length > 0 ? (
+        <nav
+          aria-label="Rankings pages"
+          className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-3 py-2"
+        >
+          <p className="text-xs text-muted-foreground">
+            Showing {bounds.from}–{bounds.to} of {filtered.length}
+            {bounds.totalPages > 1 ? ` · page ${bounds.safePage} of ${bounds.totalPages}` : ""}
+          </p>
+          {bounds.totalPages > 1 ? (
+            <div className="flex flex-wrap items-center gap-1">
+              <PaginationButton
+                label="Previous page"
+                disabled={bounds.safePage <= 1}
+                onClick={() => goToPage(bounds.safePage - 1)}
+              >
+                <CaretLeftIcon className="size-3.5" aria-hidden="true" />
+              </PaginationButton>
+              {pageTokens.map((token, index) =>
+                token === "ellipsis" ? (
+                  <span
+                    key={`ellipsis-${index}`}
+                    className="px-1 text-xs text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    …
+                  </span>
+                ) : (
+                  <PaginationButton
+                    key={token}
+                    current={token === bounds.safePage}
+                    label={`Page ${token}`}
+                    onClick={() => goToPage(token)}
+                  >
+                    {token}
+                  </PaginationButton>
+                ),
+              )}
+              <PaginationButton
+                label="Next page"
+                disabled={bounds.safePage >= bounds.totalPages}
+                onClick={() => goToPage(bounds.safePage + 1)}
+              >
+                <CaretRightIcon className="size-3.5" aria-hidden="true" />
+              </PaginationButton>
+            </div>
+          ) : null}
+        </nav>
+      ) : null}
     </section>
+  );
+}
+
+type PaginationButtonProps = {
+  children: ReactNode;
+  current?: boolean;
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+};
+
+function PaginationButton({
+  children,
+  current = false,
+  disabled = false,
+  label,
+  onClick,
+}: PaginationButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-current={current ? "page" : undefined}
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex min-h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs tabular-nums transition-colors duration-200 ${
+        current
+          ? "bg-accent font-semibold text-on-accent"
+          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+      } disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground`}
+    >
+      {children}
+    </button>
   );
 }

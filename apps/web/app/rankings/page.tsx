@@ -16,7 +16,7 @@ export default async function RankingsPage({ searchParams }: RankingsPageProps) 
   let metadata = null;
   try {
     [rankings, metadata] = await Promise.all([
-      fetchCirRankings({ includeProvisional, limit: 100 }),
+      fetchCirRankings({ includeProvisional }),
       fetchCirMetadata(),
     ]);
   } catch {
@@ -33,6 +33,7 @@ export default async function RankingsPage({ searchParams }: RankingsPageProps) 
   return (
     <CirRankings
       players={rankings.players}
+      total={rankings.total}
       includeProvisional={includeProvisional}
       tooltip={metadata?.tooltip ?? ""}
       toggleHref={{ on: "/rankings?include_provisional=1", off: "/rankings" }}
