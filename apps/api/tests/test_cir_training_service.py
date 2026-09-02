@@ -11,6 +11,10 @@ from app.services.cir_training_service import CIRTrainingService
 from tests.factories import seed_match_graph
 
 
+def _cir_service(db_session: Session) -> CIRTrainingService:
+    return CIRTrainingService(db_session, require_complete_maps=False)
+
+
 def _add_scored_map(
     db_session: Session,
     graph: dict[str, object],
@@ -135,7 +139,7 @@ def _seed_training_graph(db_session: Session) -> dict[str, object]:
 
 def test_train_cir_v01_persists_metric_version(db_session: Session) -> None:
     _seed_training_graph(db_session)
-    result = CIRTrainingService(db_session).train_cir_v01()
+    result = _cir_service(db_session).train_cir_v01()
 
     metric_version = db_session.scalar(
         select(MetricVersion).where(
@@ -152,7 +156,7 @@ def test_train_cir_v01_persists_metric_version(db_session: Session) -> None:
 
 def test_train_cir_v01_is_deterministic(db_session: Session) -> None:
     _seed_training_graph(db_session)
-    service = CIRTrainingService(db_session)
+    service = _cir_service(db_session)
     first = service.train_cir_v01()
     second = service.train_cir_v01()
     assert first.coefficients == second.coefficients
@@ -161,7 +165,7 @@ def test_train_cir_v01_is_deterministic(db_session: Session) -> None:
 
 def test_train_cir_v01_creates_player_snapshots(db_session: Session) -> None:
     graph = _seed_training_graph(db_session)
-    CIRTrainingService(db_session).train_cir_v01()
+    _cir_service(db_session).train_cir_v01()
 
     snapshot = db_session.scalar(
         select(PlayerMetricSnapshot).where(PlayerMetricSnapshot.player_id == graph["player"].id)
@@ -174,7 +178,7 @@ def test_train_cir_v01_creates_player_snapshots(db_session: Session) -> None:
 
 def test_metric_version_idempotent_rebuild(db_session: Session) -> None:
     _seed_training_graph(db_session)
-    service = CIRTrainingService(db_session)
+    service = _cir_service(db_session)
     service.train_cir_v01()
     count_first = db_session.scalar(select(func.count()).select_from(MetricVersion))
     service.train_cir_v01()
@@ -185,12 +189,12 @@ def test_metric_version_idempotent_rebuild(db_session: Session) -> None:
 
 def test_chronological_split_has_train_validation_test(db_session: Session) -> None:
     _seed_training_graph(db_session)
-    result = CIRTrainingService(db_session).train_cir_v01()
+    result = _cir_service(db_session).train_cir_v01()
     assert result.split_counts.train_maps >= 1
     assert result.split_counts.validation_maps + result.split_counts.test_maps >= 1
 
 
 def test_evaluation_reports_rmse(db_session: Session) -> None:
     _seed_training_graph(db_session)
-    result = CIRTrainingService(db_session).train_cir_v01()
+    result = _cir_service(db_session).train_cir_v01()
     assert result.evaluation.train_rmse is not None

@@ -54,8 +54,14 @@ class EventIngestionSummary(BaseModel):
     unresolved_players: int = 0
     ambiguous_players: int = 0
     resolved_by_id: int = 0
-    resolved_by_roster: int = 0
-    resolved_by_name: int = 0
+    resolved_by_event_roster: int = 0
+    resolved_by_team_roster: int = 0
+    resolved_by_db_handle: int = 0
+    invalid_agent_values: list[str] = Field(default_factory=list)
+    unknown_agent_rows: int = 0
+    maps_complete: int = 0
+    maps_incomplete: int = 0
+    maps_empty: int = 0
     dry_run: bool = False
     errors: list[str] = Field(default_factory=list)
 

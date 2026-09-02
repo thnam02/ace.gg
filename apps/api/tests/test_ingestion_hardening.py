@@ -72,7 +72,7 @@ def test_player_identity_priority() -> None:
     assert resolver.resolve("TenZ", 99999) == 99999
     assert diagnostics.player_identity.resolved_by_id == 1
     assert resolver.resolve("TenZ", None) == 92001
-    assert diagnostics.player_identity.resolved_by_roster == 1
+    assert diagnostics.player_identity.resolved_by_event_roster == 1
 
 
 def test_ambiguous_player_identity() -> None:
@@ -104,7 +104,7 @@ def test_known_handle_name_resolution() -> None:
         diagnostics=diagnostics,
     )
     assert resolver.resolve("Legacy", None) == 4242
-    assert diagnostics.player_identity.resolved_by_name == 1
+    assert diagnostics.player_identity.resolved_by_db_handle == 1
 
 
 def test_event_tier_resolver() -> None:
@@ -322,4 +322,3 @@ def test_live_match_envelope_and_flat_scores() -> None:
     assert data.maps[0].rounds_played == 19
     assert data.maps[0].player_stats[0].rounds == 19
     assert data.maps[0].player_stats[0].player.vlr_player_id == 10
-

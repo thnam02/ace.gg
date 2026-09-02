@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+UNKNOWN_AGENT_NAME = "Unknown"
+
 AGENT_ROLES: dict[str, str] = {
     "astra": "Controller",
     "breach": "Initiator",
@@ -37,16 +39,39 @@ _DISPLAY_NAMES: dict[str, str] = {
 }
 
 
-def normalize_agent_name(raw_name: str) -> str:
+def agent_lookup_key(raw_name: str) -> str:
+    return raw_name.strip().lower().replace(" ", "").replace("_", "").replace("-", "")
+
+
+def _canonical_display(key: str) -> str:
+    if key in _DISPLAY_NAMES:
+        return _DISPLAY_NAMES[key]
+    return key.title()
+
+
+def is_known_agent(raw_name: str) -> bool:
+    key = agent_lookup_key(raw_name)
+    if not key or key == "unknown":
+        return False
+    return key in AGENT_ROLES or key in _DISPLAY_NAMES
+
+
+def canonical_agent_name(raw_name: str) -> str:
     cleaned = raw_name.strip()
     if not cleaned:
-        return "Unknown"
-    key = cleaned.lower().replace(" ", "")
-    return _DISPLAY_NAMES.get(key, cleaned.title() if cleaned.lower() == cleaned else cleaned)
+        return UNKNOWN_AGENT_NAME
+    key = agent_lookup_key(cleaned)
+    if key == "unknown" or not is_known_agent(cleaned):
+        return UNKNOWN_AGENT_NAME
+    return _canonical_display(key)
+
+
+def normalize_agent_name(raw_name: str) -> str:
+    return canonical_agent_name(raw_name)
 
 
 def agent_role(name: str) -> str:
-    key = name.strip().lower().replace(" ", "")
+    key = agent_lookup_key(name)
     if key == "kay/o":
         key = "kayo"
-    return AGENT_ROLES.get(key, "Unknown")
+    return AGENT_ROLES.get(key, UNKNOWN_AGENT_NAME)

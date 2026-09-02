@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Agent, Event, Match, MatchMap, Player, PlayerMapStats, Team
+from app.parsers.agents import agent_role, normalize_agent_name
 from app.schemas.ingestion import (
     NormalizedAgent,
     NormalizedEvent,
@@ -89,12 +90,14 @@ class MatchIngestionService:
         return player
 
     def _upsert_agent(self, data: NormalizedAgent) -> Agent:
-        agent = self._session.scalar(select(Agent).where(Agent.name == data.name))
+        name = normalize_agent_name(data.name)
+        role = data.role if data.role and data.role != "Unknown" else agent_role(name)
+        agent = self._session.scalar(select(Agent).where(Agent.name == name))
         if agent is None:
-            agent = Agent(name=data.name, role=data.role)
+            agent = Agent(name=name, role=role)
             self._session.add(agent)
-        elif agent.role == "Unknown" and data.role != "Unknown":
-            agent.role = data.role
+        elif agent.role == "Unknown" and role != "Unknown":
+            agent.role = role
         self._session.flush()
         return agent
 

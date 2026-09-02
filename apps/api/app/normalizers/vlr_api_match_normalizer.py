@@ -16,7 +16,11 @@ from app.normalizers.vlr_api_parsing import (
     team_tag_from_name,
     unwrap_match_payload,
 )
-from app.parsers.agents import agent_role, normalize_agent_name
+from app.parsers.agents import (
+    UNKNOWN_AGENT_NAME,
+    agent_role,
+    normalize_agent_name,
+)
 from app.parsers.numbers import parse_int, parse_optional_float
 from app.schemas.ingestion import (
     NormalizedAgent,
@@ -28,6 +32,7 @@ from app.schemas.ingestion import (
     NormalizedTeam,
 )
 from app.schemas.ingestion_diagnostics import IngestionDiagnostics
+from app.services.map_completeness import MapCompleteness, classify_player_stat_count
 
 
 class VlrApiMatchNormalizer:
@@ -156,6 +161,19 @@ class VlrApiMatchNormalizer:
                 match_id=parse_vlr_id(match_data.get("match_id")),
                 map_number=index,
             )
+            player_stats = team_a_stats + team_b_stats
+            if (
+                team_a_score is not None
+                and team_b_score is not None
+                and self._diagnostics is not None
+            ):
+                completeness = classify_player_stat_count(len(player_stats))
+                if completeness is MapCompleteness.COMPLETE:
+                    self._diagnostics.maps_complete += 1
+                elif completeness is MapCompleteness.EMPTY:
+                    self._diagnostics.maps_empty += 1
+                else:
+                    self._diagnostics.maps_incomplete += 1
 
             maps.append(
                 NormalizedMatchMap(
@@ -165,7 +183,7 @@ class VlrApiMatchNormalizer:
                     team_b_score=team_b_score,
                     winner_vlr_team_id=winner_id,
                     rounds_played=map_rounds,
-                    player_stats=team_a_stats + team_b_stats,
+                    player_stats=player_stats,
                 )
             )
         return maps
@@ -191,7 +209,11 @@ class VlrApiMatchNormalizer:
             explicit_id = parse_vlr_id(row.get("id"))
             player_id: int | None = None
             if identity_resolver is not None:
-                player_id = identity_resolver.resolve(handle, explicit_id)
+                player_id = identity_resolver.resolve(
+                    handle,
+                    explicit_id,
+                    team_vlr_id=team_vlr_id,
+                )
             elif explicit_id is not None:
                 player_id = explicit_id
 
@@ -205,15 +227,23 @@ class VlrApiMatchNormalizer:
 
             rounds, _ = resolve_player_rounds(row, map_rounds=map_rounds)
             if rounds is None:
-                message = (
-                    f"match_id={match_id} map={map_number} player={handle}: unresolved rounds"
-                )
+                message = f"match_id={match_id} map={map_number} player={handle}: unresolved rounds"
                 if self._diagnostics is not None:
                     self._diagnostics.missing_rounds += 1
                     self._diagnostics.rejected_stat_rows.append(message)
                 continue
 
-            agent_name = normalize_agent_name(str(row.get("agent") or "Unknown"))
+            raw_agent = str(row.get("agent") or "").strip()
+            agent_name = normalize_agent_name(raw_agent or UNKNOWN_AGENT_NAME)
+            if (
+                raw_agent
+                and agent_name == UNKNOWN_AGENT_NAME
+                and raw_agent.strip().lower() != "unknown"
+                and self._diagnostics is not None
+            ):
+                self._diagnostics.record_invalid_agent(raw_agent)
+            if agent_name == UNKNOWN_AGENT_NAME and self._diagnostics is not None:
+                self._diagnostics.unknown_agent_rows += 1
             clutch_wins, clutch_attempts = clutch_stats_from_advanced(performance, handle)
             if clutch_wins is None and clutch_attempts is None and self._diagnostics is not None:
                 self._diagnostics.missing_clutch += 1

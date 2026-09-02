@@ -60,6 +60,49 @@ def unwrap_match_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def unwrap_team_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept fixture-style team objects or live vlrggapi `{segments: [team]}`."""
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    if current.get("roster") is not None or current.get("players") is not None:
+        return current
+    segments = current.get("segments")
+    if isinstance(segments, list) and segments:
+        first = as_dict(segments[0])
+        if first:
+            return first
+    if isinstance(segments, dict):
+        return segments
+    return current
+
+
+def parse_team_roster_players(payload: dict[str, Any]) -> list[tuple[int, str]]:
+    team = unwrap_team_payload(payload)
+    roster = as_list(team.get("roster")) or as_list(team.get("players"))
+    players: list[tuple[int, str]] = []
+    for entry in roster:
+        row = as_dict(entry)
+        if _is_truthy(row.get("is_staff")):
+            continue
+        player_id = parse_vlr_id(row.get("id"))
+        handle = str(row.get("alias") or row.get("name") or "").strip()
+        if player_id is None or not handle:
+            continue
+        players.append((player_id, handle))
+    return players
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "staff"}
+
+
 def event_match_entries(payload: dict[str, Any]) -> list[Any]:
     matches = as_list(payload.get("matches"))
     if matches:

@@ -12,7 +12,7 @@ from app.providers.vlr_api_ingestion_provider import (
 from app.providers.vlrggapi_factory import create_vlr_api_ingestion_provider, create_vlrggapi_client
 from app.providers.vlrggapi_raw_cache import VlrggApiRawCache
 from app.schemas.ingestion import EventIngestionSummary
-from app.services.event_ingestion import EventIngestionService, load_known_player_handles
+from app.services.event_ingestion import EventIngestionService, load_known_player_index
 from app.services.ingestion_sources import VlrApiEventIngestionSource
 
 
@@ -32,8 +32,12 @@ def ingest_json_event(
         cache = VlrggApiRawCache(raw_cache_dir)
         provider = CachingVlrApiIngestionProvider(base_provider, cache)
 
-    known_handles = load_known_player_handles(session)
-    source = VlrApiEventIngestionSource(provider, known_handles=known_handles)
+    known_handles, known_ambiguous = load_known_player_index(session)
+    source = VlrApiEventIngestionSource(
+        provider,
+        known_handles=known_handles,
+        known_ambiguous=known_ambiguous,
+    )
     service = EventIngestionService(session, source, dry_run=dry_run)
     return service.ingest_event(event_id)
 
