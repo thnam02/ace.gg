@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.metrics.adr_regression import train_adr_regression
 from app.metrics.bayesian_clutch import estimate_clutch_prior
-from app.metrics.cir_features import extract_cir_input_features
+from app.metrics.cir_features import extract_cir_input_features, extract_non_context_features
 from app.metrics.cir_round_diff import (
     actual_round_diff,
     expected_round_diff_team_a,
@@ -76,6 +76,20 @@ class _PlayerMapPrepared:
     split: str
     raw_features: dict[str, float | None]
     standardized_features: dict[str, float] = field(default_factory=dict)
+    baseline_level: str | None = None
+    non_context_features: dict[str, float | None] = field(default_factory=dict)
+
+
+@dataclass
+class CIREvaluationBundle:
+    prepared_maps: list[_PlayerMapPrepared]
+    team_maps: list[_TeamMapPrepared]
+    standardization: StandardizationParams
+    full_coefficients: CIRModelCoefficients
+    ridge_alpha: float
+    reference_mean: float
+    reference_population: list[float]
+    shrinkage_k: float
 
 
 @dataclass
@@ -252,6 +266,83 @@ class CIRTrainingService:
             example_scores=example_scores,
         )
 
+    def prepare_evaluation_bundle(self) -> CIREvaluationBundle:
+        self._team_rating_service.rebuild_team_ratings()
+        all_stats = self._stats_service.load_player_map_stats(None)
+        if not all_stats:
+            raise ValueError("No player map stats available for CIR evaluation")
+
+        map_ids = _chronological_map_ids(all_stats)
+        train_ids, val_ids, test_ids = _chronological_split(map_ids)
+        split_for_map = _split_lookup(train_ids, val_ids, test_ids)
+
+        train_stats = [row for row in all_stats if row.match_map_id in train_ids]
+        train_observations = [observation_from_player_map_stats(row) for row in train_stats]
+        feature_engine = self._build_feature_engine(train_stats)
+
+        prepared_maps = self._prepare_player_maps(
+            all_stats,
+            split_for_map=split_for_map,
+            train_observations=train_observations,
+            feature_engine=feature_engine,
+        )
+
+        train_raw = [row.raw_features for row in prepared_maps if row.split == "train"]
+        standardization = fit_standardization(train_raw)
+        for row in prepared_maps:
+            row.standardized_features = standardize_features(row.raw_features, standardization)
+
+        team_maps = self._build_team_maps(prepared_maps, split_for_map)
+        train_team_maps = [row for row in team_maps if row.split == "train"]
+        val_team_maps = [row for row in team_maps if row.split == "validation"]
+
+        train_design, train_targets = _design_matrix(train_team_maps)
+        val_design, val_targets = _design_matrix(val_team_maps)
+
+        ridge_alpha = select_ridge_alpha(
+            train_design,
+            train_targets,
+            val_design if len(val_targets) > 0 else train_design,
+            val_targets if len(val_targets) > 0 else train_targets,
+            DEFAULT_RIDGE_ALPHAS,
+        )
+        intercept, weights = fit_ridge(train_design, train_targets, ridge_alpha)
+        coefficients = CIRModelCoefficients(
+            intercept=intercept,
+            coefficients={
+                name: float(weights[index])
+                for index, name in enumerate(CIR_V01_FEATURE_NAMES)
+            },
+        )
+
+        train_players = self._aggregate_players(
+            prepared_maps,
+            split="train",
+            coefficients=coefficients,
+        )
+        reference_mean = _reference_mean(train_players)
+        reference_population = [
+            apply_shrinkage(
+                round_weighted_mean(player.raw_cir_values) or 0.0,
+                sum(weight for _, weight in player.raw_cir_values),
+                reference_mean,
+                self._shrinkage_k,
+            )
+            for player in train_players
+            if player.raw_cir_values
+        ]
+
+        return CIREvaluationBundle(
+            prepared_maps=prepared_maps,
+            team_maps=team_maps,
+            standardization=standardization,
+            full_coefficients=coefficients,
+            ridge_alpha=ridge_alpha,
+            reference_mean=reference_mean,
+            reference_population=reference_population,
+            shrinkage_k=self._shrinkage_k,
+        )
+
     def _build_feature_engine(self, train_stats: list[PlayerMapStats]) -> FeatureEngine:
         adr_observations: list[tuple[float, float]] = []
         clutch_observations: list[tuple[int, int]] = []
@@ -311,6 +402,8 @@ class CIRTrainingService:
                     stats=stats,
                     split=split_for_map[stats.match_map_id],
                     raw_features=extract_cir_input_features(adjusted),
+                    baseline_level=adjusted.baseline_level,
+                    non_context_features=extract_non_context_features(stats),
                 )
             )
         return prepared
