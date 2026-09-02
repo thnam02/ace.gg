@@ -9,5 +9,6 @@ __all__ = [
     "MatchIngestionService",
     "PlayerComparisonService",
     "PlayerStatsService",
+    "PlayerQueryService",
     "StatsEngineService",
 ]

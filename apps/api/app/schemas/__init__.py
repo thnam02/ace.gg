@@ -11,6 +11,18 @@ from app.schemas.ingestion import (
     NormalizedTeam,
 )
 from app.schemas.player import PlayerComparison, PlayerProfile, PlayerStats
+from app.schemas.player_api import (
+    PlayerCompareResponse,
+    PlayerDetailResponse,
+    PlayerDashboardStats,
+    PlayerIdentity,
+    PlayerMapsResponse,
+    PlayerMatchesResponse,
+    PlayerStatsResponse,
+    PlayerSummary,
+    StatsQueryParams,
+    TeamRef,
+)
 from app.schemas.stats import (
     AggregateStatsRaw,
     MapStatsDerived,
