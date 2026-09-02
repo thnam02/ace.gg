@@ -54,6 +54,8 @@ class StatsEngine:
                 weighted_adr=aggregated.adr,
                 weighted_kast=aggregated.kast_pct,
                 weighted_acs=aggregated.acs,
+                clutch_wins=aggregated.clutch_wins,
+                clutch_attempts=aggregated.clutch_attempts,
             ),
             derived=compute_derived(derived_input),
             maps=maps or [],

@@ -46,6 +46,8 @@ class AggregateStatsRaw(BaseModel):
     weighted_adr: float | None = None
     weighted_kast: float | None = None
     weighted_acs: float | None = None
+    clutch_wins: int | None = None
+    clutch_attempts: int | None = None
 
 
 class PlayerStatsAggregate(BaseModel):
