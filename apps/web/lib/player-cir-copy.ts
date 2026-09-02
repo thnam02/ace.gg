@@ -39,47 +39,61 @@ export function percentileOrdinal(value: number): string {
 
 export function cirInterpretation(cir: number | null | undefined): string {
   if (cir == null) {
-    return "CIR is not available for this player yet.";
+    return "CIR unavailable";
   }
   if (cir >= 99.95) {
-    return "Top percentile of the reference population";
+    return "Top percentile of the 2026 reference population";
   }
-  const display = formatCir(cir);
   const ordinalSource = Math.min(99, Math.round(cir));
-  return (
-    `CIR ${display} means validated combat performance around the ` +
-    `${percentileOrdinal(ordinalSource)} percentile of the reference population.`
-  );
+  return `Around the ${percentileOrdinal(ordinalSource)} percentile of the 2026 reference population`;
 }
 
 export function cirRankLine(
   rank: number | null | undefined,
   establishedCount: number | null | undefined,
   sampleStatus: string | null | undefined,
-): string | null {
+): string {
   if (rank != null && establishedCount != null && establishedCount > 0) {
-    return `#${rank} of ${establishedCount} established players`;
+    return "Established ranking";
   }
-  if (sampleStatus === "PROVISIONAL") {
-    return "Provisional — not in established ranking";
+  if (rank != null) {
+    return "Established ranking";
   }
-  if (sampleStatus === "LOW_SAMPLE") {
-    return "Low sample — not in established ranking";
+  if (sampleStatus === "PROVISIONAL" || sampleStatus === "LOW_SAMPLE") {
+    return "Not in established ranking";
   }
-  return null;
+  return "Not in established ranking";
 }
 
 export function rankHeadline(
   rank: number | null | undefined,
   establishedCount: number | null | undefined,
 ): { rank: string; of: string | null } {
-  if (rank != null) {
-    return {
-      rank: `#${rank}`,
-      of: establishedCount != null ? `/ ${establishedCount}` : null,
-    };
+  if (rank != null && establishedCount != null && establishedCount > 0) {
+    return { rank: `#${rank} / ${establishedCount}`, of: null };
   }
-  return { rank: "—", of: null };
+  if (rank != null) {
+    return { rank: `#${rank}`, of: null };
+  }
+  return { rank: "Not ranked", of: null };
+}
+
+export function playerIdentityLine(
+  teamName: string | null | undefined,
+  role: string | null | undefined,
+): string {
+  const team = teamName?.trim() || null;
+  const roleLabel = role?.trim() || null;
+  if (team && roleLabel) {
+    return `${team} · ${roleLabel}`;
+  }
+  if (team) {
+    return team;
+  }
+  if (roleLabel) {
+    return `Unattached · ${roleLabel}`;
+  }
+  return "Unattached";
 }
 
 export function pluralizeRole(role: string | null | undefined): string | null {
@@ -212,6 +226,13 @@ export function formatClutchStat(
     return "N/A";
   }
   return `${(rate * 100).toFixed(1)}%`;
+}
+
+export function openingFrequencyDisplay(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
+  return `${Math.round(value * 100)}%`;
 }
 
 export function openingFrequencyHelper(value: number | null | undefined): string | null {

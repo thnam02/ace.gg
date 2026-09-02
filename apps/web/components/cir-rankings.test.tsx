@@ -33,8 +33,8 @@ function player(index: number): CirRankingPlayer {
     team: {
       id: "team-1",
       vlr_team_id: 1,
-      name: "Team",
-      tag: "TM",
+      name: "Sentinels",
+      tag: "SEN",
       region: "NA",
     },
     role: "duelist",
@@ -86,5 +86,40 @@ describe("CirRankings pagination", () => {
     expect(html).toContain("Include provisional");
     expect(html).toContain(">Apply<");
     expect(html).toContain(">Reset<");
+    expect(html).toContain("Sentinels");
+  });
+
+  it("highlights the main role and keeps other played roles visible", () => {
+    const html = renderToStaticMarkup(
+      <CirRankings
+        players={[
+          {
+            ...player(1),
+            role: "Controller",
+            roles: [
+              { role: "Controller", rounds: 600, share: 0.6, is_main: true },
+              { role: "Sentinel", rounds: 400, share: 0.4, is_main: false },
+            ],
+          },
+        ]}
+        includeProvisional={false}
+        tooltip="CIR"
+      />,
+    );
+    expect(html).toContain("Controller");
+    expect(html).toContain("Sentinel");
+    expect(html).toContain("Main role Controller, also Sentinel");
+    expect(html).toContain("font-medium text-foreground");
+  });
+
+  it("shows a dash when team is missing", () => {
+    const html = renderToStaticMarkup(
+      <CirRankings
+        players={[{ ...player(1), team: null }]}
+        includeProvisional={false}
+        tooltip="CIR"
+      />,
+    );
+    expect(html).toContain(">—<");
   });
 });

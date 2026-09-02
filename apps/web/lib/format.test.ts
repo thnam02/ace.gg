@@ -10,6 +10,7 @@ describe("formatCir", () => {
     expect(formatCir(87.4)).toBe("87.4");
     expect(formatCir(48.6)).toBe("48.6");
     expect(formatCir(22.5)).toBe("22.5");
+    expect(formatCir(30.3)).toBe("30.3");
     expect(formatCir(90)).toBe("90");
   });
 });

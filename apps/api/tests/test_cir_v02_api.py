@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.metrics.cir.config import CIR_NAME, CIR_V02_VERSION, MetricVersionStatus, SampleStatus
-from app.models import MetricVersion, Player, PlayerMetricSnapshot
+from app.models import MetricVersion, Player, PlayerMetricSnapshot, PlayerTeamHistory
 from tests.test_player_api import _seed_compare_graph
 
 
@@ -118,6 +119,21 @@ def test_rankings_default_to_established(client: TestClient, db_session: Session
     assert payload["players"][0]["tier"] == "T1"
     assert payload["players"][0]["role"] == "Duelist"
     assert payload["players"][0]["region"] == "Americas"
+    assert payload["players"][0]["team"]["name"] == "Sentinels"
+    assert payload["players"][0]["team"]["tag"] == "SEN"
+    assert payload["players"][0]["roles"][0]["role"] == "Duelist"
+    assert payload["players"][0]["roles"][0]["is_main"] is True
+
+
+def test_rankings_include_team_when_history_is_not_current(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_production_snapshots(db_session)
+    for row in db_session.scalars(select(PlayerTeamHistory)).all():
+        row.is_current = False
+    db_session.flush()
+    payload = client.get("/rankings/cir").json()
+    assert payload["players"][0]["team"]["name"] == "Sentinels"
 
 
 def test_rankings_include_provisional_and_pagination(

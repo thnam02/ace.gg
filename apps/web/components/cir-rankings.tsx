@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowsLeftRightIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
+import { PlayerRoleMix } from "@/components/player/player-role-mix";
 import { compareHref } from "@/lib/compare";
 import { formatCir, formatRate, formatRounds } from "@/lib/format";
 import {
@@ -68,10 +69,13 @@ export function CirRankings({
     if (stored == null) {
       return;
     }
+    // Restore after mount so SSR markup does not read sessionStorage.
+    /* eslint-disable react-hooks/set-state-in-effect -- persist ranking explore across player pages */
     setDraft(stored.filters);
     setApplied(stored.filters);
     setDraftIncludeProvisional(stored.includeProvisional);
     setPage(stored.page);
+    /* eslint-enable react-hooks/set-state-in-effect */
     if (stored.includeProvisional !== includeProvisional) {
       router.replace(stored.includeProvisional ? toggleHref.on : toggleHref.off, {
         scroll: false,
@@ -425,15 +429,17 @@ export function CirRankings({
                       </Link>
                     </td>
                     <td className="px-3 py-1.5 text-muted-foreground">
-                      <span>{player.team?.tag ?? "—"}</span>
+                      <span>{player.team?.name ?? player.team?.tag ?? "—"}</span>
                       {player.region ? (
                         <span className="block text-[11px]">{player.region}</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-1.5 text-muted-foreground">
-                      <span>{player.role ?? "—"}</span>
+                    <td className="px-3 py-1.5">
+                      <PlayerRoleMix role={player.role} roles={player.roles} />
                       {player.tier ? (
-                        <span className="block text-[11px]">{player.tier}</span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {player.tier}
+                        </span>
                       ) : null}
                     </td>
                     <td

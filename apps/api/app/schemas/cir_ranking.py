@@ -5,6 +5,13 @@ from pydantic import BaseModel, Field
 from app.schemas.player_api import TeamRef
 
 
+class RoleMix(BaseModel):
+    role: str
+    rounds: int = 0
+    share: float = 0.0
+    is_main: bool = False
+
+
 class CirReliability(BaseModel):
     label: str
     pct: float | None = None
@@ -16,6 +23,7 @@ class CirRankingPlayer(BaseModel):
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    roles: list[RoleMix] = Field(default_factory=list)
     tier: str | None = None
     region: str | None = None
     primary_agent: str | None = None
@@ -66,6 +74,7 @@ class CirPlayerDetail(BaseModel):
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    roles: list[RoleMix] = Field(default_factory=list)
     tier: str | None = None
     rank: int | None = None
     established_count: int = 0

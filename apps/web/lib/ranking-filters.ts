@@ -90,10 +90,12 @@ export function matchesRankingFilters(
     return true;
   }
   const team = `${player.team?.tag ?? ""} ${player.team?.name ?? ""}`.toLowerCase();
+  const playedRoles = (player.roles ?? []).map((item) => item.role).join(" ").toLowerCase();
   return (
     player.handle.toLowerCase().includes(needle) ||
     team.includes(needle) ||
     (player.role ?? "").toLowerCase().includes(needle) ||
+    playedRoles.includes(needle) ||
     (player.tier ?? "").toLowerCase().includes(needle) ||
     (player.region ?? "").toLowerCase().includes(needle)
   );

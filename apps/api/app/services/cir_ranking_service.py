@@ -21,10 +21,13 @@ from app.metrics.cir.ranking_explore import (
     pick_ranking_region,
     snapshot_event_ids,
 )
+from app.metrics.cir.role_mix import build_role_mix
 from app.models import (
+    Agent,
     Event,
     MetricVersion,
     Player,
+    PlayerMapStats,
     PlayerMetricSnapshot,
     PlayerTeamHistory,
     Team,
@@ -131,6 +134,7 @@ class CirRankingService:
         total = len(filtered)
         page = filtered[offset : offset + limit]
         event_regions = self._event_region_lookup(page)
+        role_counts = self._role_counts_lookup([player.id for _snapshot, player, _team in page])
         players = [
             _to_ranking_player(
                 rank=offset + index + 1,
@@ -139,6 +143,7 @@ class CirRankingService:
                 team=team_row,
                 version=version,
                 event_regions=event_regions,
+                role_counts=role_counts.get(player.id, {}),
             )
             for index, (snapshot, player, team_row) in enumerate(page)
         ]
@@ -166,11 +171,14 @@ class CirRankingService:
         details = snapshot.details or {}
         identity = self._players._to_identity(player)
         ranks = self._rank_lookup(version.id)
+        cir_role = _detail_str(details, "role")
+        role_counts = self._role_counts_lookup([player.id]).get(player.id, {})
         return CirPlayerDetail(
             player_id=str(player.id),
             handle=player.handle,
             team=identity.team,
-            role=_detail_str(details, "role"),
+            role=cir_role,
+            roles=build_role_mix(role_counts, cir_role),
             tier=_detail_str(details, "tier"),
             rank=ranks.get(player.id),
             established_count=len(ranks),
@@ -379,9 +387,10 @@ class CirRankingService:
     ) -> Select[tuple[PlayerMetricSnapshot, Player, Team]]:
         current_team = (
             select(PlayerTeamHistory.team_id)
-            .where(
-                PlayerTeamHistory.player_id == Player.id,
-                PlayerTeamHistory.is_current.is_(True),
+            .where(PlayerTeamHistory.player_id == Player.id)
+            .order_by(
+                PlayerTeamHistory.is_current.desc(),
+                PlayerTeamHistory.joined_at.desc().nulls_last(),
             )
             .limit(1)
             .scalar_subquery()
@@ -407,6 +416,20 @@ class CirRankingService:
         return {
             event.id: event_ranking_region(region=event.region, name=event.name) for event in events
         }
+
+    def _role_counts_lookup(self, player_ids: list[UUID]) -> dict[UUID, dict[str, int]]:
+        if not player_ids:
+            return {}
+        rows = self._session.execute(
+            select(PlayerMapStats.player_id, Agent.role, func.sum(PlayerMapStats.rounds))
+            .join(Agent, Agent.id == PlayerMapStats.agent_id)
+            .where(PlayerMapStats.player_id.in_(player_ids))
+            .group_by(PlayerMapStats.player_id, Agent.role)
+        ).all()
+        counts: dict[UUID, dict[str, int]] = {}
+        for player_id, role, rounds in rows:
+            counts.setdefault(player_id, {})[str(role)] = int(rounds or 0)
+        return counts
 
     def _rank_lookup(self, metric_version_id: UUID) -> dict[UUID, int]:
         rows = list(
@@ -464,24 +487,23 @@ def _matches_details(
 
 def _team_ref(player: Player, team: Team | None) -> TeamRef | None:
     if team is not None:
-        return TeamRef(
-            id=str(team.id),
-            vlr_team_id=team.vlr_team_id,
-            name=team.name,
-            tag=team.tag,
-            region=team.region,
-        )
-    if player.team_history:
-        current = next((entry for entry in player.team_history if entry.is_current), None)
-        if current is not None:
-            return TeamRef(
-                id=str(current.team.id),
-                vlr_team_id=current.team.vlr_team_id,
-                name=current.team.name,
-                tag=current.team.tag,
-                region=current.team.region,
-            )
-    return None
+        return _as_team_ref(team)
+    current = next((entry for entry in player.team_history if entry.is_current), None)
+    if current is None and player.team_history:
+        current = max(player.team_history, key=lambda entry: entry.joined_at or "")
+    if current is None:
+        return None
+    return _as_team_ref(current.team)
+
+
+def _as_team_ref(team: Team) -> TeamRef:
+    return TeamRef(
+        id=str(team.id),
+        vlr_team_id=team.vlr_team_id,
+        name=team.name,
+        tag=team.tag,
+        region=team.region,
+    )
 
 
 def _to_ranking_player(
@@ -492,6 +514,7 @@ def _to_ranking_player(
     team: Team | None,
     version: MetricVersion,
     event_regions: dict[UUID, str | None],
+    role_counts: dict[str, int],
 ) -> CirRankingPlayer:
     details = snapshot.details or {}
     team_ref = _team_ref(player, team)
@@ -499,12 +522,14 @@ def _to_ranking_player(
         team_region=team_ref.region if team_ref is not None else None,
         event_regions=[event_regions.get(event_id) for event_id in snapshot_event_ids(details)],
     )
+    cir_role = _detail_str(details, "role")
     return CirRankingPlayer(
         rank=rank,
         player_id=str(player.id),
         handle=player.handle,
         team=team_ref,
-        role=_detail_str(details, "role"),
+        role=cir_role,
+        roles=build_role_mix(role_counts, cir_role),
         tier=_detail_str(details, "tier"),
         region=region,
         primary_agent=_detail_str(details, "primary_agent"),

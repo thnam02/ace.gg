@@ -14,43 +14,68 @@ import {
   metricVersionLabel,
   openingEfficiencyDisplay,
   openingEfficiencyHelper,
+  openingFrequencyDisplay,
   openingFrequencyHelper,
   percentileBarLabel,
   percentileOrdinal,
+  playerIdentityLine,
   rankHeadline,
   reliabilityLine,
 } from "@/lib/player-cir-copy";
 
 describe("CIR hero copy", () => {
   it("uses top-percentile wording at CIR 100", () => {
-    expect(cirInterpretation(100)).toBe("Top percentile of the reference population");
-    expect(cirInterpretation(99.6)).toContain("99.6");
-    expect(cirInterpretation(99.6)).not.toBe("Top percentile of the reference population");
+    expect(cirInterpretation(100)).toBe(
+      "Top percentile of the 2026 reference population",
+    );
+    expect(cirInterpretation(99.6)).toContain("99th percentile");
+    expect(cirInterpretation(99.6)).not.toBe(
+      "Top percentile of the 2026 reference population",
+    );
     expect(cirInterpretation(100)).not.toContain("100+");
     expect(cirInterpretation(100)).not.toContain("percentile interpretation");
   });
 
-  it("uses generic percentile wording below 100", () => {
+  it("uses compact percentile wording below 100", () => {
     expect(cirInterpretation(90)).toBe(
-      "CIR 90 means validated combat performance around the 90th percentile of the reference population.",
+      "Around the 90th percentile of the 2026 reference population",
+    );
+    expect(cirInterpretation(30.3)).toBe(
+      "Around the 30th percentile of the 2026 reference population",
+    );
+    expect(cirInterpretation(99.8)).toBe(
+      "Around the 99th percentile of the 2026 reference population",
     );
     expect(cirInterpretation(91)).toContain("91st percentile");
     expect(cirInterpretation(92)).toContain("92nd percentile");
     expect(cirInterpretation(23)).toContain("23rd percentile");
+    expect(cirInterpretation(null)).toBe("CIR unavailable");
   });
 
   it("renders rank against established count", () => {
-    expect(cirRankLine(1, 343, "ESTABLISHED")).toBe("#1 of 343 established players");
-    expect(rankHeadline(1, 343)).toEqual({ rank: "#1", of: "/ 343" });
+    expect(cirRankLine(1, 343, "ESTABLISHED")).toBe("Established ranking");
+    expect(rankHeadline(1, 343)).toEqual({ rank: "#1 / 343", of: null });
+    expect(rankHeadline(319, 408)).toEqual({ rank: "#319 / 408", of: null });
   });
 
   it("does not invent a rank for provisional or low-sample players", () => {
-    expect(cirRankLine(null, 343, "PROVISIONAL")).toBe(
-      "Provisional — not in established ranking",
-    );
+    expect(cirRankLine(null, 343, "PROVISIONAL")).toBe("Not in established ranking");
     expect(cirRankLine(undefined, 343, "LOW_SAMPLE")).toBe(
-      "Low sample — not in established ranking",
+      "Not in established ranking",
     );
+    expect(rankHeadline(null, 343)).toEqual({ rank: "Not ranked", of: null });
+  });
+});
+
+describe("player identity copy", () => {
+  it("joins team and role without a placeholder dash", () => {
+    expect(playerIdentityLine("Rex Regum Qeon", "Controller")).toBe(
+      "Rex Regum Qeon · Controller",
+    );
+    expect(playerIdentityLine(null, "Controller")).toBe("Unattached · Controller");
+    expect(playerIdentityLine("  ", "Controller")).toBe("Unattached · Controller");
+    expect(playerIdentityLine(null, null)).toBe("Unattached");
+    expect(playerIdentityLine("Team Liquid", null)).toBe("Team Liquid");
   });
 });
 
@@ -69,6 +94,7 @@ describe("expectation wording", () => {
     expect(kprExpectation(0.12).text).toBe("+0.12 vs expected");
     expect(kprExpectation(0.12).direction).toBe("above");
     expect(kprExpectation(-0.08).text).toBe("-0.08 vs expected");
+    expect(kprExpectation(-0.04).text).toBe("-0.04 vs expected");
     expect(kprExpectation(-0.08).direction).toBe("below");
     expect(expectationLabel("above")).toBe("Above expected");
     expect(expectationLabel("below")).toBe("Below expected");
@@ -81,6 +107,9 @@ describe("expectation wording", () => {
     expect(deathAvoidanceExpectation(0.11).direction).toBe("above");
     expect(deathAvoidanceExpectation(-0.09).text).toBe(
       "0.09 more deaths/round than expected",
+    );
+    expect(deathAvoidanceExpectation(-0.03).text).toBe(
+      "0.03 more deaths/round than expected",
     );
     expect(deathAvoidanceExpectation(-0.09).direction).toBe("below");
   });
@@ -112,10 +141,13 @@ describe("scouting display helpers", () => {
     expect(formatClutchStat(0, 4)).toBe("0.0%");
   });
 
-  it("adds opening helper text", () => {
+  it("formats opening frequency and efficiency as percents", () => {
+    expect(openingFrequencyDisplay(0.17)).toBe("17%");
+    expect(openingFrequencyDisplay(null)).toBe("N/A");
     expect(openingFrequencyHelper(0.25)).toBe(
       "25% of rounds involved in the opening duel",
     );
+    expect(openingEfficiencyDisplay(0.38)).toBe("38%");
     expect(openingEfficiencyDisplay(0.6)).toBe("60%");
     expect(openingEfficiencyHelper(0.6)).toBe("Won 60% of opening duels");
   });
@@ -123,8 +155,10 @@ describe("scouting display helpers", () => {
   it("clamps the percentile bar at 100", () => {
     expect(clampPercentile(100)).toBe(100);
     expect(clampPercentile(104)).toBe(100);
+    expect(clampPercentile(-4)).toBe(0);
     expect(percentileBarLabel(100)).toBe("CIR percentile: 100 out of 100");
     expect(percentileBarLabel(87.4)).toBe("CIR percentile: 87.4 out of 100");
+    expect(percentileBarLabel(30.3)).toBe("CIR percentile: 30.3 out of 100");
     expect(percentileOrdinal(90)).toBe("90th");
   });
 });

@@ -137,12 +137,20 @@ export type PlayerOptionsResponse = {
   players: PlayerOption[];
 };
 
+export type RoleMix = {
+  role: string;
+  rounds: number;
+  share: number;
+  is_main: boolean;
+};
+
 export type CirRankingPlayer = {
   rank: number;
   player_id: string;
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  roles?: RoleMix[];
   tier: string | null;
   region: string | null;
   primary_agent: string | null;
@@ -170,6 +178,7 @@ export type CirPlayerDetail = {
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  roles?: RoleMix[];
   tier?: string | null;
   rank?: number | null;
   established_count?: number;
