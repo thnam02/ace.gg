@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowsLeftRightIcon, CaretLeftIcon, CaretRightIcon } from "@phosphor-icons/react";
 
 import { compareHref } from "@/lib/compare";
@@ -16,8 +16,12 @@ import {
   RANKING_SORT_ORDERS,
   RANKING_TIERS,
   applyRankingExplore,
+  clearRankingExploreSession,
   defaultOrderForSort,
   rankingFiltersActive,
+  rankingFiltersEqual,
+  readRankingExploreSession,
+  writeRankingExploreSession,
   type RankingExploreFilters,
   type RankingSortKey,
   type RankingSortOrder,
@@ -55,33 +59,79 @@ export function CirRankings({
   const router = useRouter();
   const tableTopRef = useRef<HTMLElement>(null);
   const [selected, setSelected] = useState<string[]>(initialSelected);
-  const [filters, setFilters] = useState<RankingExploreFilters>(DEFAULT_RANKING_FILTERS);
+  const [draft, setDraft] = useState<RankingExploreFilters>(DEFAULT_RANKING_FILTERS);
+  const [applied, setApplied] = useState<RankingExploreFilters>(DEFAULT_RANKING_FILTERS);
+  const [draftIncludeProvisional, setDraftIncludeProvisional] = useState(includeProvisional);
   const [page, setPage] = useState(1);
-  const [pageScope, setPageScope] = useState(includeProvisional);
-  if (includeProvisional !== pageScope) {
-    setPageScope(includeProvisional);
-    setPage(1);
-  }
+  useEffect(() => {
+    const stored = readRankingExploreSession();
+    if (stored == null) {
+      return;
+    }
+    setDraft(stored.filters);
+    setApplied(stored.filters);
+    setDraftIncludeProvisional(stored.includeProvisional);
+    setPage(stored.page);
+    if (stored.includeProvisional !== includeProvisional) {
+      router.replace(stored.includeProvisional ? toggleHref.on : toggleHref.off, {
+        scroll: false,
+      });
+    }
+    // Restore once so player-profile navigation does not wipe applied filters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const filtered = useMemo(
-    () => applyRankingExplore(players, filters),
-    [filters, players],
+    () => applyRankingExplore(players, applied),
+    [applied, players],
   );
   const bounds = rankingPageBounds(filtered.length, page);
   const pagePlayers = filtered.slice(bounds.start, bounds.end);
   const pageTokens = rankingPageTokens(bounds.safePage, bounds.totalPages);
-  const filtersActive = rankingFiltersActive(filters);
-  const canReset = filtersActive || includeProvisional;
+  const filtersActive = rankingFiltersActive(applied);
+  const draftDirty =
+    !rankingFiltersEqual(draft, applied) || draftIncludeProvisional !== includeProvisional;
+  const canReset =
+    filtersActive || includeProvisional || draftDirty || rankingFiltersActive(draft);
   const columnCount = selectable ? 10 : 9;
 
-  function updateFilters(patch: Partial<RankingExploreFilters>) {
-    setFilters((current) => ({ ...current, ...patch }));
+  function updateDraft(patch: Partial<RankingExploreFilters>) {
+    setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function persistSession(
+    nextFilters: RankingExploreFilters,
+    nextInclude: boolean,
+    nextPage: number,
+  ) {
+    writeRankingExploreSession({
+      filters: nextFilters,
+      includeProvisional: nextInclude,
+      page: nextPage,
+    });
+  }
+
+  function applyFilters(event?: FormEvent) {
+    event?.preventDefault();
+    if (!draftDirty) {
+      return;
+    }
+    persistSession(draft, draftIncludeProvisional, 1);
+    setApplied(draft);
     setPage(1);
+    if (draftIncludeProvisional !== includeProvisional) {
+      router.replace(draftIncludeProvisional ? toggleHref.on : toggleHref.off, {
+        scroll: false,
+      });
+    }
   }
 
   function resetFilters() {
-    setFilters(DEFAULT_RANKING_FILTERS);
+    setDraft(DEFAULT_RANKING_FILTERS);
+    setApplied(DEFAULT_RANKING_FILTERS);
+    setDraftIncludeProvisional(false);
     setPage(1);
+    clearRankingExploreSession();
     if (includeProvisional) {
       router.replace(toggleHref.off, { scroll: false });
     }
@@ -101,6 +151,7 @@ export function CirRankings({
 
   function goToPage(next: number) {
     setPage(next);
+    persistSession(applied, includeProvisional, next);
     tableTopRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
   }
 
@@ -144,13 +195,16 @@ export function CirRankings({
           </button>
         ) : null}
       </div>
-      <div className="flex flex-wrap items-end gap-2 border-b border-white/10 px-3 py-2">
+      <form
+        className="flex flex-wrap items-end gap-2 border-b border-white/10 px-3 py-2"
+        onSubmit={applyFilters}
+      >
         <FilterField label="Search" htmlFor="ranking-search">
           <input
             id="ranking-search"
             type="search"
-            value={filters.query}
-            onChange={(event) => updateFilters({ query: event.target.value })}
+            value={draft.query}
+            onChange={(event) => updateDraft({ query: event.target.value })}
             placeholder="Handle or team"
             className={`${controlClass} w-44 placeholder:text-muted-foreground`}
           />
@@ -158,8 +212,8 @@ export function CirRankings({
         <FilterField label="Tier" htmlFor="ranking-tier">
           <select
             id="ranking-tier"
-            value={filters.tier ?? ""}
-            onChange={(event) => updateFilters({ tier: event.target.value || null })}
+            value={draft.tier ?? ""}
+            onChange={(event) => updateDraft({ tier: event.target.value || null })}
             className={controlClass}
           >
             <option value="">All</option>
@@ -173,9 +227,9 @@ export function CirRankings({
         <FilterField label="Region" htmlFor="ranking-region">
           <select
             id="ranking-region"
-            value={filters.region ?? ""}
+            value={draft.region ?? ""}
             onChange={(event) =>
-              updateFilters({ region: event.target.value || null })
+              updateDraft({ region: event.target.value || null })
             }
             className={controlClass}
           >
@@ -190,8 +244,8 @@ export function CirRankings({
         <FilterField label="Role" htmlFor="ranking-role">
           <select
             id="ranking-role"
-            value={filters.role ?? ""}
-            onChange={(event) => updateFilters({ role: event.target.value || null })}
+            value={draft.role ?? ""}
+            onChange={(event) => updateDraft({ role: event.target.value || null })}
             className={controlClass}
           >
             <option value="">All</option>
@@ -205,10 +259,10 @@ export function CirRankings({
         <FilterField label="Sort by" htmlFor="ranking-sort">
           <select
             id="ranking-sort"
-            value={filters.sort}
+            value={draft.sort}
             onChange={(event) => {
               const sort = event.target.value as RankingSortKey;
-              updateFilters({ sort, order: defaultOrderForSort(sort) });
+              updateDraft({ sort, order: defaultOrderForSort(sort) });
             }}
             className={controlClass}
           >
@@ -222,9 +276,9 @@ export function CirRankings({
         <FilterField label="Order" htmlFor="ranking-order">
           <select
             id="ranking-order"
-            value={filters.order}
+            value={draft.order}
             onChange={(event) =>
-              updateFilters({ order: event.target.value as RankingSortOrder })
+              updateDraft({ order: event.target.value as RankingSortOrder })
             }
             className={controlClass}
           >
@@ -239,12 +293,25 @@ export function CirRankings({
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
             Include provisional
           </span>
-          <Link
-            href={includeProvisional ? toggleHref.off : toggleHref.on}
+          <button
+            type="button"
+            onClick={() => setDraftIncludeProvisional((current) => !current)}
             className={`${controlClass} inline-flex items-center text-muted-foreground transition-colors duration-200 hover:bg-muted hover:text-foreground`}
           >
-            {includeProvisional ? "On" : "Off"}
-          </Link>
+            {draftIncludeProvisional ? "On" : "Off"}
+          </button>
+        </div>
+        <div className="grid gap-1">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            Apply
+          </span>
+          <button
+            type="submit"
+            disabled={!draftDirty}
+            className="rounded-md bg-accent px-2 py-1 text-xs font-semibold text-on-accent transition-opacity duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Apply
+          </button>
         </div>
         <div className="grid gap-1">
           <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -259,7 +326,7 @@ export function CirRankings({
             Reset
           </button>
         </div>
-      </div>
+      </form>
       {selectable && selected.length === 1 ? (
         <p className="border-b border-white/10 px-3 py-1.5 text-xs text-muted-foreground">
           Select one more player to compare.

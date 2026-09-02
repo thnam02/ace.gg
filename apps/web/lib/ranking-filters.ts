@@ -160,3 +160,126 @@ function compareSortValue(
   }
   return order === "asc" ? left - right : right - left;
 }
+
+export function rankingFiltersEqual(
+  left: RankingExploreFilters,
+  right: RankingExploreFilters,
+): boolean {
+  return (
+    left.query === right.query &&
+    left.tier === right.tier &&
+    left.region === right.region &&
+    left.role === right.role &&
+    left.sort === right.sort &&
+    left.order === right.order
+  );
+}
+
+export const RANKING_EXPLORE_STORAGE_KEY = "valorant-scout:ranking-explore";
+
+export type RankingExploreSession = {
+  filters: RankingExploreFilters;
+  includeProvisional: boolean;
+  page: number;
+};
+
+export function parseRankingExploreSession(
+  raw: string | null | undefined,
+): RankingExploreSession | null {
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as {
+      filters?: Partial<RankingExploreFilters>;
+      includeProvisional?: boolean;
+      page?: number;
+    };
+    const filters = normalizeExploreFilters(parsed.filters);
+    if (filters == null) {
+      return null;
+    }
+    return {
+      filters,
+      includeProvisional: Boolean(parsed.includeProvisional),
+      page: Number.isInteger(parsed.page) && (parsed.page ?? 0) >= 1 ? parsed.page! : 1,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function serializeRankingExploreSession(session: RankingExploreSession): string {
+  return JSON.stringify({
+    filters: session.filters,
+    includeProvisional: session.includeProvisional,
+    page: session.page,
+  });
+}
+
+export function readRankingExploreSession(): RankingExploreSession | null {
+  return parseRankingExploreSession(rankingExploreStorage()?.getItem(RANKING_EXPLORE_STORAGE_KEY));
+}
+
+export function writeRankingExploreSession(session: RankingExploreSession): void {
+  const storage = rankingExploreStorage();
+  if (storage == null) {
+    return;
+  }
+  if (
+    !rankingFiltersActive(session.filters) &&
+    !session.includeProvisional &&
+    session.page <= 1
+  ) {
+    storage.removeItem(RANKING_EXPLORE_STORAGE_KEY);
+    return;
+  }
+  storage.setItem(RANKING_EXPLORE_STORAGE_KEY, serializeRankingExploreSession(session));
+}
+
+export function clearRankingExploreSession(): void {
+  rankingExploreStorage()?.removeItem(RANKING_EXPLORE_STORAGE_KEY);
+}
+
+function rankingExploreStorage(): Storage | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeExploreFilters(
+  raw: Partial<RankingExploreFilters> | undefined,
+): RankingExploreFilters | null {
+  if (raw == null || typeof raw !== "object") {
+    return null;
+  }
+  const sort = RANKING_SORT_KEYS.includes(raw.sort as RankingSortKey)
+    ? (raw.sort as RankingSortKey)
+    : DEFAULT_RANKING_FILTERS.sort;
+  const order = RANKING_SORT_ORDERS.includes(raw.order as RankingSortOrder)
+    ? (raw.order as RankingSortOrder)
+    : defaultOrderForSort(sort);
+  return {
+    query: typeof raw.query === "string" ? raw.query : "",
+    tier: asOptionalChoice(raw.tier, RANKING_TIERS),
+    region: asOptionalChoice(raw.region, RANKING_REGIONS),
+    role: asOptionalChoice(raw.role, RANKING_ROLES),
+    sort,
+    order,
+  };
+}
+
+function asOptionalChoice<T extends string>(
+  value: string | null | undefined,
+  allowed: readonly T[],
+): T | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  return allowed.includes(value as T) ? (value as T) : null;
+}

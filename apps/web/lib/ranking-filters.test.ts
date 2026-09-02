@@ -4,7 +4,10 @@ import {
   DEFAULT_RANKING_FILTERS,
   applyRankingExplore,
   defaultOrderForSort,
+  parseRankingExploreSession,
   rankingFiltersActive,
+  rankingFiltersEqual,
+  serializeRankingExploreSession,
 } from "@/lib/ranking-filters";
 import type { CirRankingPlayer } from "@/lib/types";
 
@@ -120,5 +123,19 @@ describe("ranking explore filters", () => {
     expect(
       rankingFiltersActive({ ...DEFAULT_RANKING_FILTERS, region: "China" }),
     ).toBe(true);
+  });
+
+  it("round-trips applied explore state so returning from a player keeps filters", () => {
+    const session = {
+      filters: { ...DEFAULT_RANKING_FILTERS, tier: "T1", role: "Duelist" },
+      includeProvisional: true,
+      page: 3,
+    };
+    const restored = parseRankingExploreSession(serializeRankingExploreSession(session));
+    expect(restored).toEqual(session);
+    expect(rankingFiltersEqual(session.filters, restored?.filters ?? DEFAULT_RANKING_FILTERS)).toBe(
+      true,
+    );
+    expect(parseRankingExploreSession("not-json")).toBeNull();
   });
 });

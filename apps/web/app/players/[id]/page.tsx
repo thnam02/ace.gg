@@ -27,7 +27,7 @@ export default async function PlayerPage({ params }: PlayerPageProps) {
     return (
       <AlertBanner title="Could not load this player.">
         The API did not respond. Return to the{" "}
-        <Link href="/" className="underline underline-offset-2 hover:text-accent">
+        <Link href="/rankings" className="underline underline-offset-2 hover:text-accent">
           rankings
         </Link>
         .
@@ -39,7 +39,7 @@ export default async function PlayerPage({ params }: PlayerPageProps) {
     return (
       <AlertBanner title={`No player matches “${id}”.`}>
         Check the ID, or go back to the{" "}
-        <Link href="/" className="underline underline-offset-2 hover:text-accent">
+        <Link href="/rankings" className="underline underline-offset-2 hover:text-accent">
           rankings
         </Link>
         .

@@ -22,7 +22,7 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 function player(index: number): CirRankingPlayer {
@@ -84,6 +84,7 @@ describe("CirRankings pagination", () => {
     expect(html).toContain(">Sort by<");
     expect(html).toContain(">Order<");
     expect(html).toContain("Include provisional");
+    expect(html).toContain(">Apply<");
     expect(html).toContain(">Reset<");
   });
 });
