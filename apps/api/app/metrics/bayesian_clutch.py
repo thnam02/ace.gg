@@ -23,18 +23,19 @@ class BayesianClutchEstimate:
     prior_strength: float | None
 
 
-def estimate_clutch_prior(observations: list[tuple[int, int]]) -> ClutchPrior:
-    if not observations:
+def estimate_beta_prior(success_fail_pairs: list[tuple[int, int]]) -> ClutchPrior:
+    if not success_fail_pairs:
         return ClutchPrior(alpha=1.0, beta=1.0, population_rate=0.5, prior_strength=2.0)
 
-    total_wins = sum(wins for wins, _ in observations)
-    total_attempts = sum(attempts for _, attempts in observations)
-    if total_attempts == 0:
+    total_successes = sum(successes for successes, _ in success_fail_pairs)
+    total_failures = sum(failures for _, failures in success_fail_pairs)
+    total_trials = total_successes + total_failures
+    if total_trials == 0:
         return ClutchPrior(alpha=1.0, beta=1.0, population_rate=0.5, prior_strength=2.0)
 
-    population_rate = total_wins / total_attempts
-    avg_attempts = total_attempts / len(observations)
-    prior_strength = max(2.0, min(20.0, avg_attempts))
+    population_rate = total_successes / total_trials
+    avg_trials = total_trials / len(success_fail_pairs)
+    prior_strength = max(2.0, min(20.0, avg_trials))
     alpha = population_rate * prior_strength
     beta = (1.0 - population_rate) * prior_strength
     return ClutchPrior(
@@ -43,6 +44,47 @@ def estimate_clutch_prior(observations: list[tuple[int, int]]) -> ClutchPrior:
         population_rate=population_rate,
         prior_strength=prior_strength,
     )
+
+
+def estimate_clutch_prior(observations: list[tuple[int, int]]) -> ClutchPrior:
+    pairs = [(wins, attempts - wins) for wins, attempts in observations if attempts > 0]
+    return estimate_beta_prior(pairs)
+
+
+def estimate_beta_prior_from_exposure(
+    successes: int,
+    failures: int,
+    observation_count: int,
+) -> ClutchPrior:
+    total_trials = successes + failures
+    if total_trials == 0 or observation_count == 0:
+        return ClutchPrior(alpha=1.0, beta=1.0, population_rate=0.5, prior_strength=2.0)
+
+    population_rate = successes / total_trials
+    avg_trials = total_trials / observation_count
+    prior_strength = max(2.0, min(20.0, avg_trials))
+    alpha = population_rate * prior_strength
+    beta = (1.0 - population_rate) * prior_strength
+    return ClutchPrior(
+        alpha=alpha,
+        beta=beta,
+        population_rate=population_rate,
+        prior_strength=prior_strength,
+    )
+
+
+def bayesian_rate(
+    successes: int,
+    failures: int,
+    prior: ClutchPrior,
+) -> float | None:
+    total = successes + failures
+    if total == 0:
+        return None
+    denominator = total + prior.alpha + prior.beta
+    if denominator == 0:
+        return None
+    return (successes + prior.alpha) / denominator
 
 
 def compute_bayesian_clutch(
