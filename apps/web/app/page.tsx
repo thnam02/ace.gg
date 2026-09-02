@@ -1,44 +1,77 @@
 import { AlertBanner } from "@/components/alert-banner";
-import { MetricTiles } from "@/components/metric-tiles";
-import { PlayerRoster } from "@/components/player-roster";
-import { fetchPlayers } from "@/lib/api";
-import { rosterMetrics } from "@/lib/format";
-import type { PlayerProfile } from "@/lib/types";
+import { CirRankings } from "@/components/cir-rankings";
+import { fetchCirMetadata, fetchCirRankings } from "@/lib/api";
 
-export default async function HomePage() {
-  let players: PlayerProfile[] = [];
+type HomePageProps = {
+  searchParams: Promise<{ include_provisional?: string | string[] }>;
+};
+
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const params = await searchParams;
+  const raw = params.include_provisional;
+  const includeProvisional = Array.isArray(raw)
+    ? raw.includes("1") || raw.includes("true")
+    : raw === "1" || raw === "true";
+
   let loadError: string | null = null;
-
+  let rankings = null;
+  let metadata = null;
   try {
-    players = await fetchPlayers();
+    [rankings, metadata] = await Promise.all([
+      fetchCirRankings({ includeProvisional, limit: 100 }),
+      fetchCirMetadata(),
+    ]);
   } catch {
-    players = [];
-    loadError = "Could not load the player roster from the API.";
+    loadError = "Could not load CIR rankings from the API.";
   }
 
-  const metrics = rosterMetrics(players);
+  const tooltip =
+    metadata?.tooltip ??
+    "CIR 90 means the player's validated combat performance ranks around the 90th percentile of the reference population.";
 
   return (
     <div className="space-y-3">
       <header className="space-y-1">
-        <h1 className="text-lg font-semibold tracking-tight">Operations dashboard</h1>
+        <h1 className="text-lg font-semibold tracking-tight">CIR rankings</h1>
         <p className="text-sm text-muted-foreground">
-          Roster snapshot from the Scout API. Status in the header is health-check data, not live
-          match telemetry.
+          {metadata?.description ??
+            "CIR measures context-adjusted combat performance by combining kill production and death avoidance."}
         </p>
       </header>
       {loadError ? (
         <AlertBanner title={loadError}>
-          Start the API on port 8000 and refresh. Until then, this console has no roster to display.
+          Start the API on port 8000, train CIR v0.2, then refresh.
         </AlertBanner>
       ) : null}
-      <MetricTiles
-        count={metrics.count}
-        avgAcs={metrics.avgAcs}
-        avgKd={metrics.avgKd}
-        avgWinRate={metrics.avgWinRate}
-      />
-      <PlayerRoster players={players} />
+      {rankings ? (
+        <>
+          <section aria-label="CIR summary" className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+            <article className="glass-panel rounded-xl p-3">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                {includeProvisional ? "Listed players" : "Established players"}
+              </p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">{rankings.total}</p>
+            </article>
+            <article className="glass-panel rounded-xl p-3">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Metric</p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">CIR</p>
+            </article>
+            <article className="glass-panel rounded-xl p-3">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Version</p>
+              <p className="mt-1 font-mono text-sm font-semibold">{rankings.metric_version}</p>
+            </article>
+            <article className="glass-panel rounded-xl p-3">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Scale</p>
+              <p className="mt-1 font-mono text-xl font-semibold tabular-nums">0–100</p>
+            </article>
+          </section>
+          <CirRankings
+            players={rankings.players}
+            includeProvisional={includeProvisional}
+            tooltip={tooltip}
+          />
+        </>
+      ) : null}
     </div>
   );
 }

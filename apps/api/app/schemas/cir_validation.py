@@ -25,6 +25,7 @@ class DatasetQualityReport(BaseModel):
 class RoleDistributionSummary(BaseModel):
     role: str
     count: int = 0
+    rounds: int = 0
     mean: float | None = None
     median: float | None = None
     std: float | None = None
@@ -32,6 +33,14 @@ class RoleDistributionSummary(BaseModel):
     p25: float | None = None
     p75: float | None = None
     p90: float | None = None
+    combat_mean: float | None = None
+    combat_median: float | None = None
+    opening_mean: float | None = None
+    opening_median: float | None = None
+    team_mean: float | None = None
+    team_median: float | None = None
+    clutch_mean: float | None = None
+    clutch_median: float | None = None
 
 
 class RoleBiasReport(BaseModel):
@@ -61,6 +70,10 @@ class AblationResult(BaseModel):
     test_rmse: float | None = None
     validation_r2: float | None = None
     test_r2: float | None = None
+    validation_mae: float | None = None
+    test_mae: float | None = None
+    validation_spearman: float | None = None
+    test_spearman: float | None = None
     coefficient_changes: dict[str, float] = Field(default_factory=dict)
     rmse_delta_vs_full_validation: float | None = None
     rmse_delta_vs_full_test: float | None = None
@@ -78,6 +91,7 @@ class ShrinkageKReport(BaseModel):
     score_std: float | None = None
     rank_stability_vs_reference: float | None = None
     validation_outcome_spearman: float | None = None
+    small_sample_mean_shift: float | None = None
 
 
 class ShrinkageAnalysisReport(BaseModel):
@@ -120,6 +134,36 @@ class MissingFeatureAnalysisReport(BaseModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class ContextAdjustmentAuditReport(BaseModel):
+    overall: dict[str, int] = Field(default_factory=dict)
+    by_role: dict[str, dict[str, int]] = Field(default_factory=dict)
+    by_tier: dict[str, dict[str, int]] = Field(default_factory=dict)
+    by_event: dict[str, dict[str, int]] = Field(default_factory=dict)
+    by_map: dict[str, dict[str, int]] = Field(default_factory=dict)
+    t2_broader_baseline_pct: float | None = None
+    t1_broader_baseline_pct: float | None = None
+    insufficient_sample_contexts: list[str] = Field(default_factory=list)
+
+
+class ComponentAnalysisReport(BaseModel):
+    coefficient_signs: dict[str, str] = Field(default_factory=dict)
+    coefficient_magnitudes: dict[str, float] = Field(default_factory=dict)
+    feature_correlations: dict[str, dict[str, float]] = Field(default_factory=dict)
+    component_correlations: dict[str, dict[str, float]] = Field(default_factory=dict)
+    collinear_pairs: list[str] = Field(default_factory=list)
+
+
+class CIRV02Recommendation(BaseModel):
+    decision: str = "KEEP CIR v0.1"
+    combat: list[str] = Field(default_factory=list)
+    opening: list[str] = Field(default_factory=list)
+    team: list[str] = Field(default_factory=list)
+    clutch: list[str] = Field(default_factory=list)
+    context: str = ""
+    shrinkage: str = ""
+    reasons: list[str] = Field(default_factory=list)
+
+
 class CIRValidationResult(BaseModel):
     dataset_quality: DatasetQualityReport
     role_bias: RoleBiasReport
@@ -128,4 +172,9 @@ class CIRValidationResult(BaseModel):
     shrinkage_analysis: ShrinkageAnalysisReport
     stability_analysis: StabilityAnalysisReport
     missing_feature_analysis: MissingFeatureAnalysisReport
+    context_adjustment_audit: ContextAdjustmentAuditReport = Field(
+        default_factory=ContextAdjustmentAuditReport
+    )
+    component_analysis: ComponentAnalysisReport = Field(default_factory=ComponentAnalysisReport)
+    v02_recommendation: CIRV02Recommendation = Field(default_factory=CIRV02Recommendation)
     recommendations: list[str] = Field(default_factory=list)

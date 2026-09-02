@@ -33,6 +33,7 @@ class ContextAdjustedFeatures(BaseModel):
     baseline_level: str | None = None
     reference_rounds: int | None = None
     reference_observations: int | None = None
+    feature_baseline_levels: dict[str, str] = Field(default_factory=dict)
 
 
 class MapContextFeatures(BaseModel):

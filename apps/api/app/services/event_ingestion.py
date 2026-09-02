@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from typing import cast
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import MatchMap, Player, PlayerMapStats
+from app.models import MatchMap, Player, PlayerMapStats, PlayerTeamHistory, Team
 from app.providers.vlr_provider import VLRProvider
 from app.schemas.ingestion import EventIngestionSummary
 from app.schemas.ingestion_diagnostics import IngestionDiagnostics
@@ -75,6 +76,9 @@ class EventIngestionService:
             maps_created = self._match_maps_count() - maps_before
 
         diagnostics = _extract_diagnostics(self._source)
+        if isinstance(self._source, VlrApiEventIngestionSource):
+            self._source.finalize_diagnostics()
+            diagnostics = self._source.diagnostics
         return EventIngestionSummary(
             event_id=event_id,
             matches_discovered=len(discovered_ids),
@@ -89,8 +93,16 @@ class EventIngestionService:
             unresolved_players=diagnostics.unresolved_player_count(),
             ambiguous_players=diagnostics.ambiguous_player_count(),
             resolved_by_id=diagnostics.player_identity.resolved_by_id,
-            resolved_by_roster=diagnostics.player_identity.resolved_by_roster,
-            resolved_by_name=diagnostics.player_identity.resolved_by_name,
+            resolved_by_event_roster=diagnostics.player_identity.resolved_by_event_roster,
+            resolved_by_team_roster=diagnostics.player_identity.resolved_by_team_roster,
+            resolved_by_history=diagnostics.player_identity.resolved_by_history,
+            resolved_by_db_identity=diagnostics.player_identity.resolved_by_db_identity,
+            resolved_by_search=diagnostics.player_identity.resolved_by_search,
+            invalid_agent_values=list(diagnostics.invalid_agent_values),
+            unknown_agent_rows=diagnostics.unknown_agent_rows,
+            maps_complete=diagnostics.maps_complete,
+            maps_incomplete=diagnostics.maps_incomplete,
+            maps_empty=diagnostics.maps_empty,
             dry_run=self._dry_run,
             errors=errors + diagnostics.rejected_stat_rows,
         )
@@ -196,8 +208,16 @@ class EventIngestionService:
                 unresolved_players=summary.unresolved_players,
                 ambiguous_players=summary.ambiguous_players,
                 resolved_by_id=summary.resolved_by_id,
-                resolved_by_roster=summary.resolved_by_roster,
-                resolved_by_name=summary.resolved_by_name,
+                resolved_by_event_roster=summary.resolved_by_event_roster,
+                resolved_by_team_roster=summary.resolved_by_team_roster,
+                resolved_by_history=summary.resolved_by_history,
+                resolved_by_db_identity=summary.resolved_by_db_identity,
+                resolved_by_search=summary.resolved_by_search,
+                invalid_agent_values=list(summary.invalid_agent_values),
+                unknown_agent_rows=summary.unknown_agent_rows,
+                maps_complete=summary.maps_complete,
+                maps_incomplete=summary.maps_incomplete,
+                maps_empty=summary.maps_empty,
                 dry_run=summary.dry_run,
                 errors=errors,
             )
@@ -222,10 +242,39 @@ def _is_missing_match_error(exc: Exception) -> bool:
     return False
 
 
-def load_known_player_handles(session: Session) -> dict[str, int]:
-    from app.normalizers.player_identity_resolver import normalize_player_name
+def load_known_player_index(session: Session) -> tuple[dict[str, int], set[str]]:
+    from app.normalizers.vlr_api_parsing import normalize_player_name
 
-    handles: dict[str, int] = {}
+    name_ids: dict[str, set[int]] = defaultdict(set)
     for player in session.scalars(select(Player)):
-        handles[normalize_player_name(player.handle)] = player.vlr_player_id
+        name_ids[normalize_player_name(player.handle)].add(player.vlr_player_id)
+    unique = {name: next(iter(ids)) for name, ids in name_ids.items() if len(ids) == 1}
+    ambiguous = {name for name, ids in name_ids.items() if len(ids) > 1}
+    return unique, ambiguous
+
+
+def load_known_player_handles(session: Session) -> dict[str, int]:
+    handles, _ambiguous = load_known_player_index(session)
     return handles
+
+
+def load_player_team_history_index(
+    session: Session,
+) -> tuple[dict[tuple[str, int], set[int]], dict[int, set[int]]]:
+    from app.normalizers.vlr_api_parsing import normalize_player_name
+
+    history_index: dict[tuple[str, int], set[int]] = defaultdict(set)
+    player_teams: dict[int, set[int]] = defaultdict(set)
+    rows = session.execute(
+        select(Player.handle, Player.vlr_player_id, Team.vlr_team_id)
+        .select_from(PlayerTeamHistory)
+        .join(Player, Player.id == PlayerTeamHistory.player_id)
+        .join(Team, Team.id == PlayerTeamHistory.team_id)
+    ).all()
+    for handle, player_id, team_id in rows:
+        if not handle or player_id is None or team_id is None:
+            continue
+        normalized = normalize_player_name(handle)
+        history_index[(normalized, int(team_id))].add(int(player_id))
+        player_teams[int(player_id)].add(int(team_id))
+    return dict(history_index), dict(player_teams)

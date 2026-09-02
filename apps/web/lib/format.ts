@@ -1,22 +1,77 @@
 import type { PlayerProfile } from "@/lib/types";
 
-export function formatAcs(value: number): string {
+export function formatAcs(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
   return value.toFixed(1);
 }
 
-export function formatKd(value: number): string {
+export function formatKd(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
   return value.toFixed(2);
 }
 
-export function formatHs(value: number): string {
+export function formatHs(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
   return `${value.toFixed(1)}%`;
 }
 
-export function formatAdr(value: number): string {
+export function formatAdr(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
   return value.toFixed(1);
 }
 
-export function formatWinRate(value: number): string {
+export function formatWinRate(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
+  return `${(value * 100).toFixed(1)}%`;
+}
+
+export function formatCir(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
+  return String(Math.round(value));
+}
+
+export function formatRate(value: number | null | undefined, digits = 2): string {
+  if (value == null) {
+    return "N/A";
+  }
+  return value.toFixed(digits);
+}
+
+export function formatSignedRate(value: number | null | undefined, digits = 2): string {
+  if (value == null) {
+    return "N/A";
+  }
+  const formatted = value.toFixed(digits);
+  return value > 0 ? `+${formatted}` : formatted;
+}
+
+export function formatRounds(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
+export function formatPercent(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
+  return `${value.toFixed(1)}%`;
+}
+
+export function formatClutch(value: number | null | undefined): string {
+  if (value == null) {
+    return "N/A";
+  }
   return `${(value * 100).toFixed(1)}%`;
 }
 

@@ -15,12 +15,13 @@ from app.metrics.cir_scoring import (
     CIRModelCoefficients,
     apply_shrinkage,
     build_team_delta_vector,
+    compute_component_contributions,
     compute_raw_cir,
     empirical_cdf,
     round_weighted_mean,
 )
 from app.metrics.cir_standardization import fit_standardization, standardize_features
-from app.metrics.cir_v01 import CIR_V01_FEATURE_NAMES, DEFAULT_RIDGE_ALPHAS
+from app.metrics.cir_v01 import CIR_V01_COMPONENTS, CIR_V01_FEATURE_NAMES, DEFAULT_RIDGE_ALPHAS
 from app.metrics.cir_validation_config import (
     ABLATION_VARIANTS,
     CIR_ROLES,
@@ -33,6 +34,12 @@ from app.metrics.cir_validation_metrics import (
     percentile,
     rank_stability,
     spearman_correlation,
+)
+from app.metrics.context_baselines import (
+    BASELINE_HIERARCHY,
+    BaselineThresholds,
+    build_baseline_registry,
+    select_baseline_level,
 )
 from app.metrics.ridge_regression import (
     fit_ridge,
@@ -47,7 +54,10 @@ from app.schemas.cir_validation import (
     AblationResult,
     BaselineComparisonReport,
     BaselineMetricReport,
+    CIRV02Recommendation,
     CIRValidationResult,
+    ComponentAnalysisReport,
+    ContextAdjustmentAuditReport,
     DatasetQualityReport,
     MissingFeatureAnalysisReport,
     MissingFeatureByGroupReport,
@@ -70,10 +80,13 @@ from app.services.cir_training_service import (
     _team_metric_delta,
     _TeamMapPrepared,
 )
+from app.services.context_baseline_service import observation_from_player_map_stats
 
 _ROLE_BIAS_WARNING_THRESHOLD = 10.0
 _ABLATION_NEGLIGIBLE_PCT = 0.2
-_ABLATION_IMPROVE_PCT = 0.0
+_ABLATION_STRONG_PCT = 5.0
+_COLLINEAR_THRESHOLD = 0.7
+_BROADER_BASELINES = {"tier", "global"}
 
 
 @dataclass
@@ -83,6 +96,10 @@ class _PlayerScore:
     cir: float
     shrunk_raw_cir: float
     rounds: int
+    combat: float = 0.0
+    opening: float = 0.0
+    team: float = 0.0
+    clutch: float = 0.0
 
 
 class CIRValidationService:
@@ -108,6 +125,8 @@ class CIRValidationService:
         shrinkage_analysis = self._shrinkage_analysis(bundle, player_scores)
         stability_analysis = self._stability_analysis(bundle)
         missing_feature_analysis = self._missing_feature_analysis(bundle)
+        context_adjustment_audit = self._context_adjustment_audit(bundle)
+        component_analysis = self._component_analysis(bundle, player_scores)
         recommendations = self._build_recommendations(
             dataset_quality=dataset_quality,
             role_bias=role_bias,
@@ -116,6 +135,17 @@ class CIRValidationService:
             shrinkage_analysis=shrinkage_analysis,
             stability_analysis=stability_analysis,
             missing_feature_analysis=missing_feature_analysis,
+        )
+        v02_recommendation = self._build_v02_recommendation(
+            dataset_quality=dataset_quality,
+            role_bias=role_bias,
+            baseline_comparison=baseline_comparison,
+            ablation_results=ablation_results,
+            shrinkage_analysis=shrinkage_analysis,
+            stability_analysis=stability_analysis,
+            missing_feature_analysis=missing_feature_analysis,
+            component_analysis=component_analysis,
+            context_adjustment_audit=context_adjustment_audit,
         )
 
         return CIRValidationResult(
@@ -126,15 +156,35 @@ class CIRValidationService:
             shrinkage_analysis=shrinkage_analysis,
             stability_analysis=stability_analysis,
             missing_feature_analysis=missing_feature_analysis,
+            context_adjustment_audit=context_adjustment_audit,
+            component_analysis=component_analysis,
+            v02_recommendation=v02_recommendation,
             recommendations=recommendations,
         )
 
     def _player_scores(self, bundle: CIREvaluationBundle) -> list[_PlayerScore]:
         players: dict[UUID, list[tuple[float, int]]] = defaultdict(list)
+        combat_values: dict[UUID, list[tuple[float, int]]] = defaultdict(list)
+        opening_values: dict[UUID, list[tuple[float, int]]] = defaultdict(list)
+        team_values: dict[UUID, list[tuple[float, int]]] = defaultdict(list)
+        clutch_values: dict[UUID, list[tuple[float, int]]] = defaultdict(list)
         roles: dict[UUID, str | None] = {}
         for row in bundle.prepared_maps:
-            raw_cir = compute_raw_cir(row.standardized_features, bundle.full_coefficients)
-            players[row.stats.player_id].append((raw_cir, row.stats.rounds))
+            raw_cir = compute_raw_cir(
+                row.standardized_features,
+                bundle.full_coefficients,
+                feature_names=bundle.feature_names,
+            )
+            contributions = compute_component_contributions(
+                row.standardized_features,
+                bundle.full_coefficients,
+            )
+            rounds = row.stats.rounds
+            players[row.stats.player_id].append((raw_cir, rounds))
+            combat_values[row.stats.player_id].append((contributions.combat, rounds))
+            opening_values[row.stats.player_id].append((contributions.opening, rounds))
+            team_values[row.stats.player_id].append((contributions.team, rounds))
+            clutch_values[row.stats.player_id].append((contributions.clutch, rounds))
             agent = row.stats.agent
             roles[row.stats.player_id] = agent.role if agent is not None else None
 
@@ -158,6 +208,10 @@ class CIRValidationService:
                     cir=cir,
                     shrunk_raw_cir=shrunk,
                     rounds=rounds,
+                    combat=round_weighted_mean(combat_values[player_id]) or 0.0,
+                    opening=round_weighted_mean(opening_values[player_id]) or 0.0,
+                    team=round_weighted_mean(team_values[player_id]) or 0.0,
+                    clutch=round_weighted_mean(clutch_values[player_id]) or 0.0,
                 )
             )
         return scores
@@ -242,21 +296,27 @@ class CIRValidationService:
         )
 
     def _role_bias(self, player_scores: list[_PlayerScore]) -> RoleBiasReport:
-        by_role: dict[str, list[float]] = defaultdict(list)
+        by_role: dict[str, list[_PlayerScore]] = defaultdict(list)
         for score in player_scores:
             role = score.role or "Unknown"
             if role in CIR_ROLES:
-                by_role[role].append(score.cir)
+                by_role[role].append(score)
 
         distributions: list[RoleDistributionSummary] = []
         medians: dict[str, float | None] = {}
         for role in CIR_ROLES:
-            values = by_role.get(role, [])
+            rows = by_role.get(role, [])
+            values = [item.cir for item in rows]
             summary = distribution_summary(values)
+            combat = distribution_summary([item.combat for item in rows])
+            opening = distribution_summary([item.opening for item in rows])
+            team = distribution_summary([item.team for item in rows])
+            clutch = distribution_summary([item.clutch for item in rows])
             distributions.append(
                 RoleDistributionSummary(
                     role=role,
                     count=int(summary["count"] or 0),
+                    rounds=sum(item.rounds for item in rows),
                     mean=summary["mean"],
                     median=summary["median"],
                     std=summary["std"],
@@ -264,6 +324,14 @@ class CIRValidationService:
                     p25=summary["p25"],
                     p75=summary["p75"],
                     p90=summary["p90"],
+                    combat_mean=combat["mean"],
+                    combat_median=combat["median"],
+                    opening_mean=opening["mean"],
+                    opening_median=opening["median"],
+                    team_mean=team["mean"],
+                    team_median=team["median"],
+                    clutch_mean=clutch["mean"],
+                    clutch_median=clutch["median"],
                 )
             )
             medians[role] = summary["median"]
@@ -271,7 +339,7 @@ class CIRValidationService:
         pairwise: dict[str, float] = {}
         warnings: list[str] = []
         for i, role_a in enumerate(CIR_ROLES):
-            for role_b in CIR_ROLES[i + 1:]:
+            for role_b in CIR_ROLES[i + 1 :]:
                 median_a = medians.get(role_a)
                 median_b = medians.get(role_b)
                 if median_a is None or median_b is None:
@@ -305,6 +373,7 @@ class CIRValidationService:
                 bundle.full_coefficients,
                 name="CIR",
                 split=split,
+                feature_names=bundle.feature_names,
             )
             metrics.append(cir_report)
 
@@ -418,24 +487,33 @@ class CIRValidationService:
         for variant, removed in ABLATION_VARIANTS.items():
             use_non_context = removed is None and variant == "without_context_adjustment"
             if variant == "full_model":
-                feature_names = CIR_V01_FEATURE_NAMES
+                feature_names = bundle.feature_names
                 source = "context"
             elif use_non_context:
-                feature_names = CIR_V01_FEATURE_NAMES
+                feature_names = bundle.feature_names
                 source = "non_context"
             else:
                 removed_set = set(removed or ())
                 feature_names = tuple(
-                    name for name in CIR_V01_FEATURE_NAMES if name not in removed_set
+                    name for name in bundle.feature_names if name not in removed_set
                 )
                 source = "context"
 
             if not feature_names:
                 continue
 
-            coefficients, ridge_alpha, val_rmse, test_rmse, val_r2, test_r2 = (
-                self._train_ablation_variant(bundle, feature_names, source=source)
-            )
+            (
+                coefficients,
+                ridge_alpha,
+                val_rmse,
+                test_rmse,
+                val_r2,
+                test_r2,
+                val_mae,
+                test_mae,
+                val_spearman,
+                test_spearman,
+            ) = self._train_ablation_variant(bundle, feature_names, source=source)
 
             coef_changes = {
                 name: coefficients.coefficients.get(name, 0.0)
@@ -444,14 +522,10 @@ class CIRValidationService:
             }
 
             val_delta = (
-                None
-                if val_rmse is None or full_val_rmse is None
-                else val_rmse - full_val_rmse
+                None if val_rmse is None or full_val_rmse is None else val_rmse - full_val_rmse
             )
             test_delta = (
-                None
-                if test_rmse is None or full_test_rmse is None
-                else test_rmse - full_test_rmse
+                None if test_rmse is None or full_test_rmse is None else test_rmse - full_test_rmse
             )
             impact = self._ablation_impact(val_delta, full_val_rmse)
 
@@ -464,6 +538,10 @@ class CIRValidationService:
                     test_rmse=test_rmse,
                     validation_r2=val_r2,
                     test_r2=test_r2,
+                    validation_mae=val_mae,
+                    test_mae=test_mae,
+                    validation_spearman=val_spearman,
+                    test_spearman=test_spearman,
                     coefficient_changes=coef_changes,
                     rmse_delta_vs_full_validation=val_delta,
                     rmse_delta_vs_full_test=test_delta,
@@ -490,6 +568,10 @@ class CIRValidationService:
         float | None,
         float | None,
         float | None,
+        float | None,
+        float | None,
+        float | None,
+        float | None,
     ]:
         prepared = self._standardize_for_ablation(bundle.prepared_maps, feature_names, source)
         team_maps = self._rebuild_team_maps(prepared, bundle.team_maps, feature_names)
@@ -512,26 +594,43 @@ class CIRValidationService:
         intercept, weights = fit_ridge(train_design, train_targets, ridge_alpha)
         coefficients = CIRModelCoefficients(
             intercept=intercept,
-            coefficients={
-                name: float(weights[index]) for index, name in enumerate(feature_names)
-            },
+            coefficients={name: float(weights[index]) for index, name in enumerate(feature_names)},
         )
 
         val_rmse: float | None = None
         val_r2: float | None = None
+        val_mae: float | None = None
+        val_spearman: float | None = None
         if len(val_targets) > 0:
             val_predictions = predict_ridge(val_design, intercept, weights)
             val_rmse = rmse(val_targets, val_predictions)
             val_r2 = r2_score(val_targets, val_predictions)
+            val_mae = mae(val_targets, val_predictions)
+            val_spearman = spearman_correlation(val_targets, val_predictions)
 
         test_rmse: float | None = None
         test_r2: float | None = None
+        test_mae: float | None = None
+        test_spearman: float | None = None
         if len(test_targets) > 0:
             test_predictions = predict_ridge(test_design, intercept, weights)
             test_rmse = rmse(test_targets, test_predictions)
             test_r2 = r2_score(test_targets, test_predictions)
+            test_mae = mae(test_targets, test_predictions)
+            test_spearman = spearman_correlation(test_targets, test_predictions)
 
-        return coefficients, ridge_alpha, val_rmse, test_rmse, val_r2, test_r2
+        return (
+            coefficients,
+            ridge_alpha,
+            val_rmse,
+            test_rmse,
+            val_r2,
+            test_r2,
+            val_mae,
+            test_mae,
+            val_spearman,
+            test_spearman,
+        )
 
     def _standardize_for_ablation(
         self,
@@ -543,17 +642,13 @@ class CIRValidationService:
         for row in prepared_maps:
             if row.split != "train":
                 continue
-            raw = (
-                row.non_context_features if source == "non_context" else row.raw_features
-            )
+            raw = row.non_context_features if source == "non_context" else row.raw_features
             train_raw.append({name: raw.get(name) for name in feature_names})
 
         standardization = fit_standardization(train_raw)
         updated: list[_PlayerMapPrepared] = []
         for row in prepared_maps:
-            raw = (
-                row.non_context_features if source == "non_context" else row.raw_features
-            )
+            raw = row.non_context_features if source == "non_context" else row.raw_features
             subset = {name: raw.get(name) for name in feature_names}
             standardized = standardize_features(subset, standardization)
             updated.append(
@@ -609,10 +704,18 @@ class CIRValidationService:
         val_maps = [row for row in bundle.team_maps if row.split == "validation"]
         test_maps = [row for row in bundle.team_maps if row.split == "test"]
         val_rmse = self._evaluate_predictions(
-            val_maps, coefficients, name="CIR", split="validation"
+            val_maps,
+            coefficients,
+            name="CIR",
+            split="validation",
+            feature_names=bundle.feature_names,
         ).rmse
         test_rmse = self._evaluate_predictions(
-            test_maps, coefficients, name="CIR", split="test"
+            test_maps,
+            coefficients,
+            name="CIR",
+            split="test",
+            feature_names=bundle.feature_names,
         ).rmse
         return val_rmse, test_rmse
 
@@ -621,10 +724,12 @@ class CIRValidationService:
             return None
         pct = abs(delta / baseline) * 100.0
         if delta < 0 and pct > _ABLATION_NEGLIGIBLE_PCT:
-            return "improves"
+            return "IMPROVES"
         if pct <= _ABLATION_NEGLIGIBLE_PCT:
-            return "negligible"
-        return "harms"
+            return "NEGLIGIBLE"
+        if pct >= _ABLATION_STRONG_PCT:
+            return "STRONGLY_HARMS"
+        return "HARMS"
 
     def _shrinkage_analysis(
         self,
@@ -683,6 +788,7 @@ class CIRValidationService:
             score_array = np.array(cir_scores, dtype=np.float64)
             score_std = float(np.std(score_array)) if cir_scores else None
             validation_spearman = self._shrinkage_validation_association(bundle, k, player_raw)
+            small_sample_shift = self._small_sample_shift(reference_scores, player_raw, bundle, k)
 
             results.append(
                 ShrinkageKReport(
@@ -690,20 +796,18 @@ class CIRValidationService:
                     score_std=score_std,
                     rank_stability_vs_reference=stability,
                     validation_outcome_spearman=validation_spearman,
+                    small_sample_mean_shift=small_sample_shift,
                 )
             )
 
-            if stability is not None:
-                tradeoff = stability - (score_std or 0.0) * 0.01
-                if tradeoff > best_score:
-                    best_score = tradeoff
+            if validation_spearman is not None:
+                if validation_spearman > best_score:
+                    best_score = validation_spearman
                     best_k = k
 
-        recommended = best_k if best_k is not None and best_k != reference_k else None
+        recommended = best_k
         if recommended is None and results:
-            val_stabilities = [
-                (row.k, row.rank_stability_vs_reference or 0.0) for row in results
-            ]
+            val_stabilities = [(row.k, row.rank_stability_vs_reference or 0.0) for row in results]
             recommended = max(val_stabilities, key=lambda item: item[1])[0]
 
         return ShrinkageAnalysisReport(
@@ -805,9 +909,7 @@ class CIRValidationService:
                 partial_cir[player_id] = empirical_cdf(shrunk, bundle.reference_population)
 
             eligible = [
-                player_id
-                for player_id in partial_cir
-                if full_rounds.get(player_id, 0) >= threshold
+                player_id for player_id in partial_cir if full_rounds.get(player_id, 0) >= threshold
             ]
             if len(eligible) < 2:
                 thresholds.append(
@@ -860,8 +962,8 @@ class CIRValidationService:
 
         for split_name in ("validation", "test"):
             split_maps = [row for row in bundle.team_maps if row.split == split_name]
-            complete_rmse, missing_rmse, complete_count, missing_count = (
-                self._missing_split_rmse(bundle, split_maps)
+            complete_rmse, missing_rmse, complete_count, missing_count = self._missing_split_rmse(
+                bundle, split_maps
             )
             splits.append(
                 MissingFeatureSplitReport(
@@ -873,7 +975,7 @@ class CIRValidationService:
                 )
             )
 
-        group_types = ("role", "agent", "tier", "event")
+        group_types = ("role", "agent", "tier", "event", "region")
         for group_type in group_types:
             for feature in CIR_V01_FEATURE_NAMES:
                 groups = self._missing_by_group(bundle, group_type, feature)
@@ -921,10 +1023,7 @@ class CIRValidationService:
         missing_count = 0
 
         weights = np.array(
-            [
-                bundle.full_coefficients.coefficients[name]
-                for name in CIR_V01_FEATURE_NAMES
-            ],
+            [bundle.full_coefficients.coefficients.get(name, 0.0) for name in bundle.feature_names],
             dtype=np.float64,
         )
 
@@ -935,7 +1034,7 @@ class CIRValidationService:
                 if row.stats.match_map_id == team_map.match_map_id
             ]
             has_missing = any(missing_feature_names(row.raw_features) for row in rows)
-            design, _ = _design_matrix_for_features([team_map], CIR_V01_FEATURE_NAMES)
+            design, _ = _design_matrix_for_features([team_map], bundle.feature_names)
             if design.shape[0] == 0:
                 continue
             prediction = float(
@@ -982,9 +1081,14 @@ class CIRValidationService:
             elif group_type == "agent":
                 group = row.stats.agent.name if row.stats.agent else "Unknown"
             elif group_type == "tier":
-                group = row.stats.match_map.match.event.tier or "Unknown"
+                event = row.stats.match_map.match.event
+                group = event.tier or "Unknown" if event is not None else "Unknown"
+            elif group_type == "region":
+                event = row.stats.match_map.match.event
+                group = event.region or "Unknown" if event is not None else "Unknown"
             else:
-                group = row.stats.match_map.match.event.name or "Unknown"
+                event = row.stats.match_map.match.event
+                group = event.name or "Unknown" if event is not None else "Unknown"
             totals[group] += 1
             if row.raw_features.get(feature) is None:
                 counts[group] += 1
@@ -1016,25 +1120,33 @@ class CIRValidationService:
         for result in ablation_results.results:
             if result.variant == "full_model":
                 continue
-            if result.impact == "improves" and result.rmse_delta_vs_full_validation is not None:
-                pct = abs(result.rmse_delta_vs_full_validation / (
-                    ablation_results.full_model_validation_rmse or 1.0
-                )) * 100.0
+            if result.impact == "IMPROVES" and result.rmse_delta_vs_full_validation is not None:
+                pct = (
+                    abs(
+                        result.rmse_delta_vs_full_validation
+                        / (ablation_results.full_model_validation_rmse or 1.0)
+                    )
+                    * 100.0
+                )
                 recommendations.append(
                     f"{result.variant} improved validation RMSE by {pct:.1f}%; "
                     "consider removing it in CIR v0.2."
                 )
-            elif result.impact == "negligible":
+            elif result.impact == "NEGLIGIBLE":
                 recommendations.append(
                     f"{result.variant} had <{_ABLATION_NEGLIGIBLE_PCT:.1f}% effect; "
                     "likely redundant."
                 )
-            elif result.impact == "harms" and result.rmse_delta_vs_full_validation is not None:
-                pct = abs(
-                    result.rmse_delta_vs_full_validation / (
-                        ablation_results.full_model_validation_rmse or 1.0
+            elif result.impact in {"HARMS", "STRONGLY_HARMS"} and (
+                result.rmse_delta_vs_full_validation is not None
+            ):
+                pct = (
+                    abs(
+                        result.rmse_delta_vs_full_validation
+                        / (ablation_results.full_model_validation_rmse or 1.0)
                     )
-                ) * 100.0
+                    * 100.0
+                )
                 recommendations.append(
                     f"{result.variant} harmed validation RMSE by {pct:.1f}%; keep in CIR v0.2."
                 )
@@ -1107,6 +1219,314 @@ class CIRValidationService:
 
         return recommendations
 
+    def _small_sample_shift(
+        self,
+        reference_scores: list[_PlayerScore],
+        player_raw: dict[UUID, float],
+        bundle: CIREvaluationBundle,
+        k: float,
+    ) -> float | None:
+        diffs: list[float] = []
+        for score in reference_scores:
+            if score.rounds >= 250:
+                continue
+            raw = player_raw.get(score.player_id, 0.0)
+            shrunk_k = apply_shrinkage(raw, score.rounds, bundle.reference_mean, k)
+            shrunk_ref = apply_shrinkage(
+                raw, score.rounds, bundle.reference_mean, bundle.shrinkage_k
+            )
+            cir_k = empirical_cdf(shrunk_k, bundle.reference_population)
+            cir_ref = empirical_cdf(shrunk_ref, bundle.reference_population)
+            diffs.append(abs(cir_k - cir_ref))
+        if not diffs:
+            return None
+        return float(sum(diffs) / len(diffs))
+
+    def _context_adjustment_audit(
+        self,
+        bundle: CIREvaluationBundle,
+    ) -> ContextAdjustmentAuditReport:
+        observations = [
+            observation_from_player_map_stats(row.stats) for row in bundle.prepared_maps
+        ]
+        overall = {level.value: 0 for level in BASELINE_HIERARCHY}
+        by_role: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        by_tier: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        by_event: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        by_map: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        if not observations:
+            return ContextAdjustmentAuditReport(overall=overall)
+
+        registry = build_baseline_registry(observations)
+        thresholds = BaselineThresholds()
+        t1_total = 0
+        t1_broad = 0
+        t2_total = 0
+        t2_broad = 0
+        for row, observation in zip(bundle.prepared_maps, observations, strict=True):
+            level, _ = select_baseline_level(registry, observation, thresholds)
+            key = level.value
+            overall[key] = overall.get(key, 0) + 1
+            role = observation.role or "Unknown"
+            tier = observation.tier or "Unknown"
+            event = row.stats.match_map.match.event
+            event_name = event.name if event is not None else "Unknown"
+            by_role[role][key] += 1
+            by_tier[tier][key] += 1
+            by_event[event_name][key] += 1
+            by_map[observation.map_name][key] += 1
+            if tier == "T1":
+                t1_total += 1
+                if key in _BROADER_BASELINES:
+                    t1_broad += 1
+            elif tier == "T2":
+                t2_total += 1
+                if key in _BROADER_BASELINES:
+                    t2_broad += 1
+
+        insufficient: list[str] = []
+        for (agent_name, map_label, tier_label), exposure in registry.agent_map_tier.items():
+            if exposure.rounds < thresholds.agent_map_tier_min_rounds:
+                insufficient.append(
+                    f"agent_map_tier {agent_name}/{map_label}/{tier_label or 'Unknown'} "
+                    f"rounds={exposure.rounds}"
+                )
+        insufficient = insufficient[:20]
+
+        return ContextAdjustmentAuditReport(
+            overall=overall,
+            by_role={role: dict(counts) for role, counts in by_role.items()},
+            by_tier={tier: dict(counts) for tier, counts in by_tier.items()},
+            by_event={event: dict(counts) for event, counts in by_event.items()},
+            by_map={map_name: dict(counts) for map_name, counts in by_map.items()},
+            t1_broader_baseline_pct=(100.0 * t1_broad / t1_total) if t1_total else None,
+            t2_broader_baseline_pct=(100.0 * t2_broad / t2_total) if t2_total else None,
+            insufficient_sample_contexts=insufficient,
+        )
+
+    def _component_analysis(
+        self,
+        bundle: CIREvaluationBundle,
+        player_scores: list[_PlayerScore],
+    ) -> ComponentAnalysisReport:
+        coefficients = bundle.full_coefficients.coefficients
+        signs = {
+            name: ("+" if value > 0 else "-" if value < 0 else "0")
+            for name, value in coefficients.items()
+        }
+        magnitudes = {name: abs(value) for name, value in coefficients.items()}
+
+        feature_names = list(bundle.feature_names)
+        train_rows = [row for row in bundle.prepared_maps if row.split == "train"]
+        feature_corr: dict[str, dict[str, float]] = {}
+        collinear: list[str] = []
+        if train_rows and feature_names:
+            matrix = np.array(
+                [
+                    [row.standardized_features.get(name, 0.0) for name in feature_names]
+                    for row in train_rows
+                ],
+                dtype=np.float64,
+            )
+            if matrix.shape[0] > 1 and matrix.shape[1] > 1:
+                corr = np.corrcoef(matrix, rowvar=False)
+                for i, name_a in enumerate(feature_names):
+                    feature_corr[name_a] = {}
+                    for j, name_b in enumerate(feature_names):
+                        value = float(corr[i, j])
+                        feature_corr[name_a][name_b] = value
+                        if i < j and abs(value) >= _COLLINEAR_THRESHOLD:
+                            collinear.append(f"{name_a} ~ {name_b} r={value:.2f}")
+
+        component_corr: dict[str, dict[str, float]] = {}
+        if len(player_scores) > 1:
+            names = ("combat", "opening", "team", "clutch")
+            matrix = np.array(
+                [
+                    [score.combat, score.opening, score.team, score.clutch]
+                    for score in player_scores
+                ],
+                dtype=np.float64,
+            )
+            corr = np.corrcoef(matrix, rowvar=False)
+            for i, name_a in enumerate(names):
+                component_corr[name_a] = {names[j]: float(corr[i, j]) for j in range(len(names))}
+
+        return ComponentAnalysisReport(
+            coefficient_signs=signs,
+            coefficient_magnitudes=magnitudes,
+            feature_correlations=feature_corr,
+            component_correlations=component_corr,
+            collinear_pairs=collinear,
+        )
+
+    def _build_v02_recommendation(
+        self,
+        *,
+        dataset_quality: DatasetQualityReport,
+        role_bias: RoleBiasReport,
+        baseline_comparison: BaselineComparisonReport,
+        ablation_results: AblationReport,
+        shrinkage_analysis: ShrinkageAnalysisReport,
+        stability_analysis: StabilityAnalysisReport,
+        missing_feature_analysis: MissingFeatureAnalysisReport,
+        component_analysis: ComponentAnalysisReport,
+        context_adjustment_audit: ContextAdjustmentAuditReport,
+    ) -> CIRV02Recommendation:
+        combat = list(CIR_V01_COMPONENTS["combat"])
+        opening = list(CIR_V01_COMPONENTS["opening"])
+        team = list(CIR_V01_COMPONENTS["team"])
+        clutch = list(CIR_V01_COMPONENTS["clutch"])
+        reasons: list[str] = []
+        refine = False
+
+        impacts = {row.variant: row.impact for row in ablation_results.results}
+        if impacts.get("without_kast") == "IMPROVES":
+            team = [name for name in team if name != "kast_residual"]
+            reasons.append("Ablation without_kast IMPROVES validation RMSE; drop KAST in v0.2.")
+            refine = True
+        elif impacts.get("without_kast") == "NEGLIGIBLE":
+            reasons.append("Ablation without_kast is NEGLIGIBLE; consider dropping KAST.")
+            refine = True
+        else:
+            reasons.append("Keep KAST unless later evidence shows redundancy with APR.")
+
+        if impacts.get("without_apr") == "IMPROVES":
+            team = [name for name in team if name != "apr_residual"]
+            reasons.append("Ablation without_apr IMPROVES validation RMSE; drop APR in v0.2.")
+            refine = True
+        elif impacts.get("without_apr") == "NEGLIGIBLE":
+            reasons.append("Ablation without_apr is NEGLIGIBLE; APR may be redundant.")
+            refine = True
+        else:
+            reasons.append("Keep APR; removing it did not improve validation RMSE.")
+
+        clutch_missing = missing_feature_analysis.missing_rates_by_feature.get(
+            "clutch_rate_adjusted", 0.0
+        )
+        if clutch_missing >= 80.0 or impacts.get("without_clutch") in {
+            "IMPROVES",
+            "NEGLIGIBLE",
+        }:
+            clutch = []
+            reasons.append(
+                f"Clutch missingness is {clutch_missing:.1f}% or ablation is not harmful; "
+                "keep clutch disabled in v0.2 until coverage exists."
+            )
+            refine = True
+        else:
+            reasons.append("Keep clutch_rate_adjusted; ablation shows it is useful.")
+
+        if impacts.get("without_residual_adr") in {"HARMS", "STRONGLY_HARMS"}:
+            reasons.append("Keep residual ADR; ablation HARMS validation RMSE.")
+        elif impacts.get("without_residual_adr") == "IMPROVES":
+            combat = [name for name in combat if name != "residual_adr"]
+            reasons.append("Residual ADR ablation IMPROVES RMSE; drop it in v0.2.")
+            refine = True
+
+        context = "Keep current hierarchy; diagnose T2 fallback before expanding."
+        if (
+            context_adjustment_audit.t2_broader_baseline_pct is not None
+            and context_adjustment_audit.t1_broader_baseline_pct is not None
+            and (
+                context_adjustment_audit.t2_broader_baseline_pct
+                - context_adjustment_audit.t1_broader_baseline_pct
+                >= 15.0
+            )
+        ):
+            context = (
+                "T2 uses broader baselines more than T1. Diagnose sample size before "
+                "expanding the hierarchy. Do not add opponent strength to context yet."
+            )
+            reasons.append(context)
+            refine = True
+
+        shrinkage = f"Keep k={shrinkage_analysis.reference_k:.0f}."
+        if (
+            shrinkage_analysis.recommended_k is not None
+            and shrinkage_analysis.recommended_k != shrinkage_analysis.reference_k
+        ):
+            shrinkage = (
+                f"Change shrinkage k from {shrinkage_analysis.reference_k:.0f} to "
+                f"{shrinkage_analysis.recommended_k:.0f} based on validation association."
+            )
+            reasons.append(shrinkage)
+            refine = True
+
+        if role_bias.warnings:
+            reasons.extend(f"Role bias: {warning}" for warning in role_bias.warnings)
+            refine = True
+        if component_analysis.collinear_pairs:
+            reasons.append(
+                "Collinear features: " + "; ".join(component_analysis.collinear_pairs[:4])
+            )
+            refine = True
+
+        cir_val = next(
+            (
+                metric
+                for metric in baseline_comparison.metrics
+                if metric.name == "CIR" and metric.split == "validation"
+            ),
+            None,
+        )
+        baseline_val = [
+            metric
+            for metric in baseline_comparison.metrics
+            if metric.name in {"K/D", "ACS", "VLR Rating"} and metric.split == "validation"
+        ]
+        cir_test = next(
+            (
+                metric
+                for metric in baseline_comparison.metrics
+                if metric.name == "CIR" and metric.split == "test"
+            ),
+            None,
+        )
+        rethink = False
+        if (
+            cir_val is not None
+            and cir_val.rmse is not None
+            and cir_test is not None
+            and cir_test.rmse is not None
+            and baseline_val
+        ):
+            worse_val = all(
+                other.rmse is not None and cir_val.rmse > other.rmse for other in baseline_val
+            )
+            baseline_test = [
+                metric
+                for metric in baseline_comparison.metrics
+                if metric.name in {"K/D", "ACS", "VLR Rating"} and metric.split == "test"
+            ]
+            worse_test = all(
+                other.rmse is not None and cir_test.rmse > other.rmse for other in baseline_test
+            )
+            if worse_val and worse_test:
+                rethink = True
+                reasons.append(
+                    "CIR lost to K/D, ACS, and VLR Rating on both validation and test RMSE."
+                )
+
+        if rethink:
+            decision = "RETHINK MODEL"
+        elif refine:
+            decision = "REFINE TO CIR v0.2"
+        else:
+            decision = "KEEP CIR v0.1"
+            reasons.append("Held-out results do not justify changing CIR v0.1 yet.")
+
+        return CIRV02Recommendation(
+            decision=decision,
+            combat=combat,
+            opening=opening,
+            team=team,
+            clutch=clutch,
+            context=context,
+            shrinkage=shrinkage,
+            reasons=reasons,
+        )
+
 
 def _design_matrix_for_features(
     team_maps: list[_TeamMapPrepared],
@@ -1115,8 +1535,7 @@ def _design_matrix_for_features(
     if not team_maps:
         return np.empty((0, len(feature_names) + 1)), np.empty(0)
     rows = [
-        [1.0] + [team_map.deltas.get(name, 0.0) for name in feature_names]
-        for team_map in team_maps
+        [1.0] + [team_map.deltas.get(name, 0.0) for name in feature_names] for team_map in team_maps
     ]
     targets = [team_map.outcome_residual for team_map in team_maps]
     return np.array(rows, dtype=np.float64), np.array(targets, dtype=np.float64)

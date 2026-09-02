@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.schemas.cir_ranking import CirCompareResponse, CirPlayerDetail
 from app.schemas.player_api import (
     PlayerCompareResponse,
     PlayerDetailResponse,
@@ -16,6 +17,7 @@ from app.schemas.player_api import (
     PlayerSummary,
     StatsQueryParams,
 )
+from app.services.cir_ranking_service import CirRankingService
 from app.services.player_query import PlayerNotFoundError, PlayerQueryService
 
 router = APIRouter(prefix="/players", tags=["players"])
@@ -23,6 +25,10 @@ router = APIRouter(prefix="/players", tags=["players"])
 
 def get_player_query_service(db: Session = Depends(get_db)) -> PlayerQueryService:
     return PlayerQueryService(db)
+
+
+def get_ranking_service(db: Session = Depends(get_db)) -> CirRankingService:
+    return CirRankingService(db)
 
 
 def _stats_filters(
@@ -54,11 +60,51 @@ def compare_players(
     player_ids: list[str] = Query(..., min_length=2, description="Player IDs to compare"),
     filters: StatsQueryParams = Depends(_stats_filters),
     service: PlayerQueryService = Depends(get_player_query_service),
+    ranking: CirRankingService = Depends(get_ranking_service),
 ) -> PlayerCompareResponse:
     try:
-        return service.compare_players(player_ids, filters)
+        payload = service.compare_players(player_ids, filters)
+        try:
+            version = ranking.resolve_metric_version()
+        except ValueError:
+            return payload
+        for entry in payload.players:
+            entry.cir = ranking.compare_block(UUID(entry.player.id), version=version)
+        payload.notes = (
+            f"{payload.notes} CIR inputs are context-adjusted combat only; "
+            "ACS/ADR/KAST/opening remain descriptive scouting stats."
+        )
+        return payload
     except PlayerNotFoundError:
         raise HTTPException(status_code=404, detail="Player not found") from None
+
+
+@router.get("/compare/cir", response_model=CirCompareResponse)
+def compare_players_cir(
+    player_ids: list[str] = Query(..., min_length=2, description="Player IDs to compare"),
+    metric_version: str | None = Query(None),
+    service: CirRankingService = Depends(get_ranking_service),
+) -> CirCompareResponse:
+    try:
+        return service.compare(player_ids, metric_version=metric_version)
+    except PlayerNotFoundError:
+        raise HTTPException(status_code=404, detail="Player not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/{player_id}/cir", response_model=CirPlayerDetail)
+def get_player_cir(
+    player_id: str,
+    metric_version: str | None = Query(None),
+    service: CirRankingService = Depends(get_ranking_service),
+) -> CirPlayerDetail:
+    try:
+        return service.player_cir(player_id, metric_version=metric_version)
+    except PlayerNotFoundError:
+        raise HTTPException(status_code=404, detail="Player not found") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{player_id}/stats", response_model=PlayerStatsResponse)

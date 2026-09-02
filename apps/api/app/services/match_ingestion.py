@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Agent, Event, Match, MatchMap, Player, PlayerMapStats, Team
+from app.models import (
+    Agent,
+    Event,
+    Match,
+    MatchMap,
+    Player,
+    PlayerMapStats,
+    PlayerTeamHistory,
+    Team,
+)
+from app.parsers.agents import agent_role, normalize_agent_name
 from app.schemas.ingestion import (
     NormalizedAgent,
     NormalizedEvent,
@@ -89,12 +101,14 @@ class MatchIngestionService:
         return player
 
     def _upsert_agent(self, data: NormalizedAgent) -> Agent:
-        agent = self._session.scalar(select(Agent).where(Agent.name == data.name))
+        name = normalize_agent_name(data.name)
+        role = data.role if data.role and data.role != "Unknown" else agent_role(name)
+        agent = self._session.scalar(select(Agent).where(Agent.name == name))
         if agent is None:
-            agent = Agent(name=data.name, role=data.role)
+            agent = Agent(name=name, role=role)
             self._session.add(agent)
-        elif agent.role == "Unknown" and data.role != "Unknown":
-            agent.role = data.role
+        elif agent.role == "Unknown" and role != "Unknown":
+            agent.role = role
         self._session.flush()
         return agent
 
@@ -161,13 +175,15 @@ class MatchIngestionService:
         self._session.flush()
 
         for stats in data.player_stats:
-            self._upsert_player_map_stats(match_map, stats)
+            self._upsert_player_map_stats(match_map, stats, played_at=match.played_at)
         return match_map
 
     def _upsert_player_map_stats(
         self,
         match_map: MatchMap,
         data: NormalizedPlayerMapStats,
+        *,
+        played_at: datetime | None,
     ) -> PlayerMapStats:
         if data.rounds is None:
             raise ValueError("Player map stats require resolved rounds")
@@ -209,9 +225,55 @@ class MatchIngestionService:
         stats.clutch_attempts = data.clutch_attempts
         stats.max_kills = data.max_kills
         self._session.flush()
+        self._enrich_player_team_history(player, team, played_at)
         return stats
+
+    def _enrich_player_team_history(
+        self,
+        player: Player,
+        team: Team,
+        played_at: datetime | None,
+    ) -> None:
+        existing = list(
+            self._session.scalars(
+                select(PlayerTeamHistory).where(
+                    PlayerTeamHistory.player_id == player.id,
+                    PlayerTeamHistory.team_id == team.id,
+                )
+            ).all()
+        )
+        seen_at = _as_utc(played_at)
+        if not existing:
+            self._session.add(
+                PlayerTeamHistory(
+                    player_id=player.id,
+                    team_id=team.id,
+                    joined_at=seen_at,
+                    left_at=None if seen_at is None else seen_at,
+                    is_current=False,
+                )
+            )
+            self._session.flush()
+            return
+
+        row = existing[0]
+        joined_at = _as_utc(row.joined_at)
+        left_at = _as_utc(row.left_at)
+        if seen_at is not None and (joined_at is None or seen_at < joined_at):
+            row.joined_at = seen_at
+        if not row.is_current and seen_at is not None and (left_at is None or seen_at > left_at):
+            row.left_at = seen_at
+        self._session.flush()
 
     def _team_by_vlr_id(self, vlr_team_id: int | None) -> Team | None:
         if vlr_team_id is None:
             return None
         return self._session.scalar(select(Team).where(Team.vlr_team_id == vlr_team_id))
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)

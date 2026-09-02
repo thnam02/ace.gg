@@ -48,3 +48,13 @@ class CIRTrainingResult(BaseModel):
     reference_mean: float
     evaluation: CIRTrainingEvaluation
     example_scores: list[CIRPlayerScoreExample] = Field(default_factory=list)
+    maps_total: int = 0
+    maps_used_for_cir: int = 0
+    maps_excluded_from_cir: int = 0
+    maps_incomplete: int = 0
+    maps_empty: int = 0
+    clutch_available_rows: int = 0
+    clutch_missing_rows: int = 0
+    clutch_coverage_pct: float = 0.0
+    clutch_feature_enabled: bool = True
+    maps_excluded_unknown_agent: int = 0

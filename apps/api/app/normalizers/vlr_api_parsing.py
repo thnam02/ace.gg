@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 from app.parsers.numbers import parse_int, parse_optional_int
@@ -17,6 +17,40 @@ _SAME_MONTH_RANGE = re.compile(
 )
 _SINGLE_DATE = re.compile(r"([A-Za-z]{3,9}\s+\d{1,2},\s*\d{4})")
 _YEAR = re.compile(r"\b(20\d{2})\b")
+_VLR_WEEKDAY_DATETIME = re.compile(
+    r"(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+    r"(?P<month>[A-Za-z]+)\s+(?P<day>\d{1,2})\s+"
+    r"(?P<hour>\d{1,2}):(?P<minute>\d{2})\s+(?P<ampm>AM|PM)"
+    r"(?:\s+(?P<tz>[A-Z]{2,5}))?",
+    re.IGNORECASE,
+)
+_TZ_OFFSETS: dict[str, timezone] = {
+    "UTC": UTC,
+    "GMT": UTC,
+    "AEST": timezone(timedelta(hours=10)),
+    "AEDT": timezone(timedelta(hours=11)),
+    "ACST": timezone(timedelta(hours=9, minutes=30)),
+    "ACDT": timezone(timedelta(hours=10, minutes=30)),
+    "PST": timezone(timedelta(hours=-8)),
+    "PDT": timezone(timedelta(hours=-7)),
+    "MST": timezone(timedelta(hours=-7)),
+    "MDT": timezone(timedelta(hours=-6)),
+    "CST": timezone(timedelta(hours=-6)),
+    "CDT": timezone(timedelta(hours=-5)),
+    "EST": timezone(timedelta(hours=-5)),
+    "EDT": timezone(timedelta(hours=-4)),
+    "BST": timezone(timedelta(hours=1)),
+    "CET": timezone(timedelta(hours=1)),
+    "CEST": timezone(timedelta(hours=2)),
+    "EET": timezone(timedelta(hours=2)),
+    "EEST": timezone(timedelta(hours=3)),
+    "IST": timezone(timedelta(hours=5, minutes=30)),
+    "JST": timezone(timedelta(hours=9)),
+    "KST": timezone(timedelta(hours=9)),
+    "SGT": timezone(timedelta(hours=8)),
+    "HKT": timezone(timedelta(hours=8)),
+    "CST+8": timezone(timedelta(hours=8)),
+}
 
 _COUNTRY_REGION: dict[str, str] = {
     "united states": "NA",
@@ -48,6 +82,10 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def normalize_player_name(name: str) -> str:
+    return " ".join(name.strip().lower().split())
+
+
 def unwrap_match_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept fixture-style match objects or live vlrggapi `{segments: [match]}`."""
     if payload.get("match_id") is not None and payload.get("maps") is not None:
@@ -58,6 +96,151 @@ def unwrap_match_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if first.get("match_id") is not None or first.get("maps") is not None:
             return first
     return payload
+
+
+def unwrap_team_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Accept fixture-style team objects or live vlrggapi `{segments: [team]}`."""
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    if current.get("roster") is not None or current.get("players") is not None:
+        return current
+    segments = current.get("segments")
+    if isinstance(segments, list) and segments:
+        first = as_dict(segments[0])
+        if first:
+            return first
+    if isinstance(segments, dict):
+        return segments
+    return current
+
+
+def parse_team_roster_players(payload: dict[str, Any]) -> list[tuple[int, str]]:
+    team = unwrap_team_payload(payload)
+    roster = as_list(team.get("roster")) or as_list(team.get("players"))
+    players: list[tuple[int, str]] = []
+    for entry in roster:
+        row = as_dict(entry)
+        if _is_truthy(row.get("is_staff")):
+            continue
+        player_id = parse_vlr_id(row.get("id"))
+        handle = str(row.get("alias") or row.get("name") or "").strip()
+        if player_id is None or not handle:
+            continue
+        players.append((player_id, handle))
+    return players
+
+
+def unwrap_player_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    if (
+        current.get("info") is not None
+        or current.get("current_team") is not None
+        or current.get("current_teams") is not None
+        or current.get("past_teams") is not None
+        or current.get("name")
+    ):
+        if current.get("segments") is None:
+            return current
+    segments = current.get("segments")
+    if isinstance(segments, list) and segments:
+        first = as_dict(segments[0])
+        if first:
+            return first
+    if isinstance(segments, dict):
+        return segments
+    return current
+
+
+def parse_player_profile_handle(payload: dict[str, Any]) -> str:
+    profile = unwrap_player_profile(payload)
+    info = as_dict(profile.get("info"))
+    return str(info.get("name") or profile.get("name") or "").strip()
+
+
+def parse_player_profile_teams(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    profile = unwrap_player_profile(payload)
+    teams: list[dict[str, Any]] = []
+    current = profile.get("current_team")
+    if isinstance(current, dict) and (current.get("name") or current.get("tag")):
+        teams.append(current)
+    for item in as_list(profile.get("current_teams")):
+        row = as_dict(item)
+        if row.get("name") or row.get("tag"):
+            teams.append(row)
+    for item in as_list(profile.get("past_teams")):
+        row = as_dict(item)
+        if row.get("name") or row.get("tag"):
+            teams.append(row)
+    return teams
+
+
+def parse_search_players(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    segments = current.get("segments")
+    results: dict[str, Any] = {}
+    if isinstance(segments, dict):
+        results = as_dict(segments.get("results"))
+    elif isinstance(segments, list) and segments:
+        results = as_dict(as_dict(segments[0]).get("results"))
+    else:
+        results = as_dict(current.get("results"))
+    return [as_dict(item) for item in as_list(results.get("players"))]
+
+
+def search_result_handle(row: dict[str, Any]) -> str:
+    raw = str(row.get("name") or row.get("alias") or "").strip()
+    return raw.split("(")[0].strip()
+
+
+def normalize_team_token(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def profile_matches_team(
+    payload: dict[str, Any],
+    *,
+    team_name: str | None,
+    team_tag: str | None,
+) -> bool:
+    tokens = {
+        token
+        for token in (
+            normalize_team_token(team_name or ""),
+            normalize_team_token(team_tag or ""),
+        )
+        if token
+    }
+    if not tokens:
+        return False
+    for team in parse_player_profile_teams(payload):
+        name = normalize_team_token(str(team.get("name") or ""))
+        tag = normalize_team_token(str(team.get("tag") or ""))
+        if name and name in tokens:
+            return True
+        if tag and tag in tokens:
+            return True
+    return False
+
+
+def profile_has_team_evidence(payload: dict[str, Any]) -> bool:
+    return bool(parse_player_profile_teams(payload))
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "staff"}
 
 
 def event_match_entries(payload: dict[str, Any]) -> list[Any]:
@@ -158,8 +341,52 @@ def parse_date_range_text(text: str | None) -> tuple[date | None, date | None]:
     return None, None
 
 
-def parse_datetime_text(text: str | None) -> datetime | None:
-    parsed = parse_date_text(text)
+def year_from_text(text: str | None) -> int | None:
+    if not text:
+        return None
+    match = _YEAR.search(text)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def parse_datetime_text(
+    text: str | None,
+    *,
+    default_year: int | None = None,
+) -> datetime | None:
+    if not text:
+        return None
+    cleaned = " ".join(text.split())
+    weekday_match = _VLR_WEEKDAY_DATETIME.search(cleaned)
+    if weekday_match:
+        year_match = _YEAR.search(cleaned)
+        year = int(year_match.group(1)) if year_match else default_year
+        if year is None:
+            return None
+        month_text = weekday_match.group("month")
+        try:
+            month = datetime.strptime(month_text[:3], "%b").month
+        except ValueError:
+            return None
+        hour = int(weekday_match.group("hour"))
+        ampm = weekday_match.group("ampm").upper()
+        if ampm == "PM" and hour != 12:
+            hour += 12
+        if ampm == "AM" and hour == 12:
+            hour = 0
+        tz_key = (weekday_match.group("tz") or "UTC").upper()
+        tzinfo = _TZ_OFFSETS.get(tz_key, UTC)
+        local = datetime(
+            year,
+            month,
+            int(weekday_match.group("day")),
+            hour,
+            int(weekday_match.group("minute")),
+            tzinfo=tzinfo,
+        )
+        return local.astimezone(UTC)
+    parsed = parse_date_text(cleaned)
     if parsed is None:
         return None
     return datetime(parsed.year, parsed.month, parsed.day, tzinfo=UTC)

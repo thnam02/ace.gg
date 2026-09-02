@@ -43,9 +43,22 @@ from app.metrics.cir_v01 import (
     VALIDATION_FRACTION,
 )
 from app.metrics.context_baselines import (
+    BaselineThresholds,
     ContextObservation,
     adjust_context_observation,
     build_baseline_registry,
+)
+from app.metrics.context_v2 import (
+    adjust_context_v2_observation,
+    build_context_v2_registry,
+    no_context_features,
+)
+from app.metrics.context_v2_config import (
+    CONTEXT_MODE_NONE,
+    CONTEXT_MODE_V1,
+    CONTEXT_MODE_V2,
+    ContextExperimentSpec,
+    feature_specific_rules,
 )
 from app.metrics.derived import safe_ratio
 from app.metrics.feature_engine import FeatureEngine
@@ -58,6 +71,7 @@ from app.metrics.ridge_regression import (
 )
 from app.metrics.stats_engine import player_map_stats_to_raw
 from app.models import MetricVersion, PlayerMapStats, PlayerMetricSnapshot
+from app.parsers.agents import UNKNOWN_AGENT_NAME, is_known_agent
 from app.schemas.cir import (
     CIRBaselineEvaluation,
     CIRPlayerScoreExample,
@@ -65,9 +79,30 @@ from app.schemas.cir import (
     CIRTrainingEvaluation,
     CIRTrainingResult,
 )
+from app.schemas.context_features import ContextAdjustedFeatures
+from app.services.clutch_coverage import (
+    CLUTCH_FEATURE_NAME,
+    DEFAULT_MIN_CLUTCH_COVERAGE,
+    ClutchCoverage,
+    measure_clutch_coverage,
+)
 from app.services.context_baseline_service import observation_from_player_map_stats
+from app.services.map_completeness import (
+    MapCompletenessSummary,
+    filter_stats_to_complete_maps,
+    summarize_map_completeness,
+)
 from app.services.stats_engine_service import StatsEngineService
 from app.services.team_rating_service import TeamRatingService
+
+
+@dataclass
+class _CirDatasetSelection:
+    stats: list[PlayerMapStats]
+    completeness: MapCompletenessSummary
+    clutch: ClutchCoverage
+    feature_names: tuple[str, ...]
+    maps_excluded_unknown_agent: int = 0
 
 
 @dataclass
@@ -78,6 +113,7 @@ class _PlayerMapPrepared:
     standardized_features: dict[str, float] = field(default_factory=dict)
     baseline_level: str | None = None
     non_context_features: dict[str, float | None] = field(default_factory=dict)
+    adjusted: ContextAdjustedFeatures | None = None
 
 
 @dataclass
@@ -90,6 +126,7 @@ class CIREvaluationBundle:
     reference_mean: float
     reference_population: list[float]
     shrinkage_k: float
+    feature_names: tuple[str, ...] = CIR_V01_FEATURE_NAMES
 
 
 @dataclass
@@ -123,20 +160,93 @@ class CIRTrainingService:
         stats_service: StatsEngineService | None = None,
         team_rating_service: TeamRatingService | None = None,
         shrinkage_k: float = DEFAULT_SHRINKAGE_K,
+        require_complete_maps: bool = True,
+        min_clutch_coverage: float = DEFAULT_MIN_CLUTCH_COVERAGE,
+        persist_version: str = CIR_V01_VERSION,
+        events_used: list[int] | None = None,
+        context_mode: str = CONTEXT_MODE_V1,
+        context_spec: ContextExperimentSpec | None = None,
+        persist: bool = True,
+        rebuild_ratings: bool = True,
+        feature_names: tuple[str, ...] | None = None,
+        train_fraction: float = TRAIN_FRACTION,
+        validation_fraction: float = VALIDATION_FRACTION,
+        split_ids: tuple[set[UUID], set[UUID], set[UUID]] | None = None,
+        eligible_map_ids: set[UUID] | None = None,
     ) -> None:
         self._session = session
         self._stats_service = stats_service or StatsEngineService(session)
         self._team_rating_service = team_rating_service or TeamRatingService(session)
         self._shrinkage_k = shrinkage_k
+        self._require_complete_maps = require_complete_maps
+        self._min_clutch_coverage = min_clutch_coverage
+        self._persist_version = persist_version
+        self._events_used = list(events_used or [])
+        self._context_mode = context_mode
+        self._context_spec = context_spec
+        self._persist = persist
+        self._rebuild_ratings = rebuild_ratings
+        self._feature_names_override = feature_names
+        self._train_fraction = train_fraction
+        self._validation_fraction = validation_fraction
+        self._split_ids = split_ids
+        self._eligible_map_ids = eligible_map_ids
+
+    def _select_dataset(self) -> _CirDatasetSelection:
+        all_stats = self._stats_service.load_player_map_stats(None)
+        completeness = summarize_map_completeness(self._session)
+        stats = (
+            filter_stats_to_complete_maps(all_stats, completeness.complete_map_ids)
+            if self._require_complete_maps
+            else all_stats
+        )
+        stats, unknown_excluded = _exclude_unknown_agent_maps(stats)
+        if self._eligible_map_ids is not None:
+            stats = [row for row in stats if row.match_map_id in self._eligible_map_ids]
+        if not stats:
+            raise ValueError("No player map stats available for CIR training")
+        clutch = measure_clutch_coverage(stats, min_coverage=self._min_clutch_coverage)
+        feature_names = CIR_V01_FEATURE_NAMES
+        if not clutch.clutch_feature_enabled:
+            feature_names = tuple(
+                name for name in CIR_V01_FEATURE_NAMES if name != CLUTCH_FEATURE_NAME
+            )
+        if self._feature_names_override is not None:
+            allowed = set(feature_names)
+            feature_names = tuple(name for name in self._feature_names_override if name in allowed)
+            if not feature_names:
+                raise ValueError("No requested CIR features remain after clutch/coverage filters")
+        return _CirDatasetSelection(
+            stats=stats,
+            completeness=completeness,
+            clutch=clutch,
+            feature_names=feature_names,
+            maps_excluded_unknown_agent=unknown_excluded,
+        )
 
     def train_cir_v01(self) -> CIRTrainingResult:
-        self._team_rating_service.rebuild_team_ratings()
-        all_stats = self._stats_service.load_player_map_stats(None)
-        if not all_stats:
-            raise ValueError("No player map stats available for CIR training")
+        result, _bundle = self.fit_cir_v01()
+        return result
+
+    def fit_cir_v01(self) -> tuple[CIRTrainingResult, CIREvaluationBundle]:
+        if self._rebuild_ratings:
+            self._team_rating_service.rebuild_team_ratings()
+        dataset = self._select_dataset()
+        all_stats = dataset.stats
 
         map_ids = _chronological_map_ids(all_stats)
-        train_ids, val_ids, test_ids = _chronological_split(map_ids)
+        if self._split_ids is not None:
+            train_ids, val_ids, test_ids = self._split_ids
+            present = set(map_ids)
+            train_ids = train_ids & present
+            val_ids = val_ids & present
+            test_ids = test_ids & present
+        else:
+            train_ids, val_ids, test_ids = _chronological_split(
+                map_ids,
+                train_fraction=self._train_fraction,
+                validation_fraction=self._validation_fraction,
+            )
         split_for_map = _split_lookup(train_ids, val_ids, test_ids)
 
         train_stats = [row for row in all_stats if row.match_map_id in train_ids]
@@ -151,18 +261,35 @@ class CIRTrainingService:
         )
 
         train_raw = [row.raw_features for row in prepared_maps if row.split == "train"]
-        standardization = fit_standardization(train_raw)
+        standardization = fit_standardization(train_raw, feature_names=dataset.feature_names)
         for row in prepared_maps:
-            row.standardized_features = standardize_features(row.raw_features, standardization)
+            row.standardized_features = standardize_features(
+                row.raw_features,
+                standardization,
+                feature_names=dataset.feature_names,
+            )
 
-        team_maps = self._build_team_maps(prepared_maps, split_for_map)
+        team_maps = self._build_team_maps(
+            prepared_maps,
+            split_for_map,
+            feature_names=dataset.feature_names,
+        )
         train_team_maps = [row for row in team_maps if row.split == "train"]
         val_team_maps = [row for row in team_maps if row.split == "validation"]
         test_team_maps = [row for row in team_maps if row.split == "test"]
 
-        train_design, train_targets = _design_matrix(train_team_maps)
-        val_design, val_targets = _design_matrix(val_team_maps)
-        test_design, test_targets = _design_matrix(test_team_maps)
+        train_design, train_targets = _design_matrix(
+            train_team_maps,
+            feature_names=dataset.feature_names,
+        )
+        val_design, val_targets = _design_matrix(
+            val_team_maps,
+            feature_names=dataset.feature_names,
+        )
+        test_design, test_targets = _design_matrix(
+            test_team_maps,
+            feature_names=dataset.feature_names,
+        )
 
         ridge_alpha = select_ridge_alpha(
             train_design,
@@ -174,10 +301,7 @@ class CIRTrainingService:
         intercept, weights = fit_ridge(train_design, train_targets, ridge_alpha)
         coefficients = CIRModelCoefficients(
             intercept=intercept,
-            coefficients={
-                name: float(weights[index])
-                for index, name in enumerate(CIR_V01_FEATURE_NAMES)
-            },
+            coefficients=_coefficients_for_features(dataset.feature_names, weights),
         )
 
         evaluation = self._evaluate_model(
@@ -190,6 +314,8 @@ class CIRTrainingService:
             test_targets=test_targets,
             prepared_maps=prepared_maps,
             team_maps=team_maps,
+            feature_names=dataset.feature_names,
+            baseline_stats=all_stats,
         )
 
         train_players = self._aggregate_players(
@@ -210,23 +336,31 @@ class CIRTrainingService:
         ]
 
         training_start, training_end = _training_period(train_stats)
-        metric_version = self._persist_metric_version(
-            training_start=training_start,
-            training_end=training_end,
-            standardization=standardization,
-            coefficients=coefficients,
-            ridge_alpha=ridge_alpha,
-            reference_mean=reference_mean,
-            reference_population=reference_population,
-        )
-
-        all_players = self._aggregate_players(prepared_maps, split=None, coefficients=coefficients)
-        self._persist_player_snapshots(
-            metric_version=metric_version,
-            players=all_players,
-            reference_mean=reference_mean,
-            reference_population=reference_population,
-        )
+        metric_version_id = "unpersisted"
+        if self._persist:
+            metric_version = self._persist_metric_version(
+                training_start=training_start,
+                training_end=training_end,
+                standardization=standardization,
+                coefficients=coefficients,
+                ridge_alpha=ridge_alpha,
+                reference_mean=reference_mean,
+                reference_population=reference_population,
+                feature_names=dataset.feature_names,
+                clutch=dataset.clutch,
+                evaluation=evaluation,
+                feature_engine=feature_engine,
+            )
+            all_players = self._aggregate_players(
+                prepared_maps, split=None, coefficients=coefficients
+            )
+            self._persist_player_snapshots(
+                metric_version=metric_version,
+                players=all_players,
+                reference_mean=reference_mean,
+                reference_population=reference_population,
+            )
+            metric_version_id = str(metric_version.id)
 
         example_players = self._aggregate_players(
             prepared_maps,
@@ -240,15 +374,13 @@ class CIRTrainingService:
         )
 
         train_player_ids = {row.stats.player_id for row in prepared_maps if row.split == "train"}
-        val_player_ids = {
-            row.stats.player_id for row in prepared_maps if row.split == "validation"
-        }
+        val_player_ids = {row.stats.player_id for row in prepared_maps if row.split == "validation"}
         test_player_ids = {row.stats.player_id for row in prepared_maps if row.split == "test"}
 
-        return CIRTrainingResult(
-            metric_version_id=str(metric_version.id),
+        result = CIRTrainingResult(
+            metric_version_id=metric_version_id,
             name=CIR_METRIC_NAME,
-            version=CIR_V01_VERSION,
+            version=self._persist_version,
             split_counts=CIRSplitCounts(
                 train_maps=len(train_ids),
                 validation_maps=len(val_ids),
@@ -264,75 +396,22 @@ class CIRTrainingService:
             reference_mean=reference_mean,
             evaluation=evaluation,
             example_scores=example_scores,
+            maps_total=dataset.completeness.maps_played,
+            maps_used_for_cir=len({row.match_map_id for row in all_stats}),
+            maps_excluded_from_cir=(
+                dataset.completeness.maps_excluded_from_cir + dataset.maps_excluded_unknown_agent
+                if self._require_complete_maps
+                else dataset.maps_excluded_unknown_agent
+            ),
+            maps_incomplete=dataset.completeness.maps_incomplete,
+            maps_empty=dataset.completeness.maps_empty,
+            clutch_available_rows=dataset.clutch.clutch_available_rows,
+            clutch_missing_rows=dataset.clutch.clutch_missing_rows,
+            clutch_coverage_pct=dataset.clutch.clutch_coverage_pct,
+            clutch_feature_enabled=dataset.clutch.clutch_feature_enabled,
+            maps_excluded_unknown_agent=dataset.maps_excluded_unknown_agent,
         )
-
-    def prepare_evaluation_bundle(self) -> CIREvaluationBundle:
-        self._team_rating_service.rebuild_team_ratings()
-        all_stats = self._stats_service.load_player_map_stats(None)
-        if not all_stats:
-            raise ValueError("No player map stats available for CIR evaluation")
-
-        map_ids = _chronological_map_ids(all_stats)
-        train_ids, val_ids, test_ids = _chronological_split(map_ids)
-        split_for_map = _split_lookup(train_ids, val_ids, test_ids)
-
-        train_stats = [row for row in all_stats if row.match_map_id in train_ids]
-        train_observations = [observation_from_player_map_stats(row) for row in train_stats]
-        feature_engine = self._build_feature_engine(train_stats)
-
-        prepared_maps = self._prepare_player_maps(
-            all_stats,
-            split_for_map=split_for_map,
-            train_observations=train_observations,
-            feature_engine=feature_engine,
-        )
-
-        train_raw = [row.raw_features for row in prepared_maps if row.split == "train"]
-        standardization = fit_standardization(train_raw)
-        for row in prepared_maps:
-            row.standardized_features = standardize_features(row.raw_features, standardization)
-
-        team_maps = self._build_team_maps(prepared_maps, split_for_map)
-        train_team_maps = [row for row in team_maps if row.split == "train"]
-        val_team_maps = [row for row in team_maps if row.split == "validation"]
-
-        train_design, train_targets = _design_matrix(train_team_maps)
-        val_design, val_targets = _design_matrix(val_team_maps)
-
-        ridge_alpha = select_ridge_alpha(
-            train_design,
-            train_targets,
-            val_design if len(val_targets) > 0 else train_design,
-            val_targets if len(val_targets) > 0 else train_targets,
-            DEFAULT_RIDGE_ALPHAS,
-        )
-        intercept, weights = fit_ridge(train_design, train_targets, ridge_alpha)
-        coefficients = CIRModelCoefficients(
-            intercept=intercept,
-            coefficients={
-                name: float(weights[index])
-                for index, name in enumerate(CIR_V01_FEATURE_NAMES)
-            },
-        )
-
-        train_players = self._aggregate_players(
-            prepared_maps,
-            split="train",
-            coefficients=coefficients,
-        )
-        reference_mean = _reference_mean(train_players)
-        reference_population = [
-            apply_shrinkage(
-                round_weighted_mean(player.raw_cir_values) or 0.0,
-                sum(weight for _, weight in player.raw_cir_values),
-                reference_mean,
-                self._shrinkage_k,
-            )
-            for player in train_players
-            if player.raw_cir_values
-        ]
-
-        return CIREvaluationBundle(
+        bundle = CIREvaluationBundle(
             prepared_maps=prepared_maps,
             team_maps=team_maps,
             standardization=standardization,
@@ -341,7 +420,13 @@ class CIRTrainingService:
             reference_mean=reference_mean,
             reference_population=reference_population,
             shrinkage_k=self._shrinkage_k,
+            feature_names=dataset.feature_names,
         )
+        return result, bundle
+
+    def prepare_evaluation_bundle(self) -> CIREvaluationBundle:
+        _result, bundle = self.fit_cir_v01()
+        return bundle
 
     def _build_feature_engine(self, train_stats: list[PlayerMapStats]) -> FeatureEngine:
         adr_observations: list[tuple[float, float]] = []
@@ -367,8 +452,6 @@ class CIRTrainingService:
         train_observations: list[ContextObservation],
         feature_engine: FeatureEngine,
     ) -> list[_PlayerMapPrepared]:
-        from app.metrics.context_baselines import BaselineThresholds
-
         prepared: list[_PlayerMapPrepared] = []
         thresholds = BaselineThresholds(
             agent_map_tier_min_rounds=1,
@@ -376,34 +459,47 @@ class CIRTrainingService:
             role_tier_min_rounds=1,
             tier_min_rounds=1,
         )
+        v1_registry = build_baseline_registry(train_observations)
+        v2_registry = build_context_v2_registry(train_observations)
+        spec = self._context_spec
+        rules = spec.rules if spec is not None else feature_specific_rules()
+        lam = spec.lam if spec is not None else 1.0
+        tau = spec.tau if spec is not None else 0.0
 
         for stats in all_stats:
+            if stats.match_map_id not in split_for_map:
+                continue
             observation = observation_from_player_map_stats(stats)
-            reference = [
-                item
-                for item in train_observations
-                if item.observation_id != observation.observation_id
-                and (
-                    observation.played_at is None
-                    or item.played_at is None
-                    or item.played_at <= observation.played_at
-                )
-            ]
-            registry = build_baseline_registry(reference)
             residual_adr = feature_engine.from_player_map_stats(stats).residual_adr
-            adjusted = adjust_context_observation(
-                observation,
-                residual_adr=residual_adr,
-                registry=registry,
-                thresholds=thresholds,
-            )
+            if self._context_mode == CONTEXT_MODE_NONE:
+                adjusted = no_context_features(observation, residual_adr=residual_adr)
+            elif self._context_mode == CONTEXT_MODE_V2:
+                adjusted = adjust_context_v2_observation(
+                    observation,
+                    residual_adr=residual_adr,
+                    registry=v2_registry,
+                    rules=rules,
+                    lam=lam,
+                    tau=tau,
+                )
+            else:
+                adjusted = adjust_context_observation(
+                    observation,
+                    residual_adr=residual_adr,
+                    registry=v1_registry,
+                    thresholds=thresholds,
+                )
+            raw_features = extract_cir_input_features(adjusted)
+            # Residual ADR stays the ADR-model residual, never a second context subtraction.
+            raw_features["residual_adr"] = residual_adr
             prepared.append(
                 _PlayerMapPrepared(
                     stats=stats,
                     split=split_for_map[stats.match_map_id],
-                    raw_features=extract_cir_input_features(adjusted),
+                    raw_features=raw_features,
                     baseline_level=adjusted.baseline_level,
                     non_context_features=extract_non_context_features(stats),
+                    adjusted=adjusted,
                 )
             )
         return prepared
@@ -412,6 +508,7 @@ class CIRTrainingService:
         self,
         prepared_maps: list[_PlayerMapPrepared],
         split_for_map: dict[UUID, str],
+        feature_names: tuple[str, ...] = CIR_V01_FEATURE_NAMES,
     ) -> list[_TeamMapPrepared]:
         grouped: dict[UUID, list[_PlayerMapPrepared]] = defaultdict(list)
         for row in prepared_maps:
@@ -444,6 +541,7 @@ class CIRTrainingService:
             deltas = build_team_delta_vector(
                 [row.standardized_features for row in team_a_rows],
                 [row.standardized_features for row in team_b_rows],
+                feature_names=feature_names,
             )
             team_maps.append(
                 _TeamMapPrepared(
@@ -467,9 +565,11 @@ class CIRTrainingService:
         test_targets: NDArray[np.float64],
         prepared_maps: list[_PlayerMapPrepared],
         team_maps: list[_TeamMapPrepared],
+        feature_names: tuple[str, ...] = CIR_V01_FEATURE_NAMES,
+        baseline_stats: list[PlayerMapStats] | None = None,
     ) -> CIRTrainingEvaluation:
         weights = np.array(
-            [coefficients.coefficients[name] for name in CIR_V01_FEATURE_NAMES],
+            [coefficients.coefficients[name] for name in feature_names],
             dtype=np.float64,
         )
         train_predictions = predict_ridge(train_design, coefficients.intercept, weights)
@@ -484,7 +584,7 @@ class CIRTrainingService:
             else np.array([])
         )
 
-        baselines = self._baseline_evaluations(team_maps)
+        baselines = self._baseline_evaluations(team_maps, stats=baseline_stats)
 
         return CIRTrainingEvaluation(
             train_rmse=rmse(train_targets, train_predictions) if len(train_targets) else None,
@@ -499,9 +599,12 @@ class CIRTrainingService:
     def _baseline_evaluations(
         self,
         team_maps: list[_TeamMapPrepared],
+        *,
+        stats: list[PlayerMapStats] | None = None,
     ) -> list[CIRBaselineEvaluation]:
         stats_by_map: dict[UUID, list[PlayerMapStats]] = defaultdict(list)
-        for row in self._stats_service.load_player_map_stats(None):
+        rows = stats if stats is not None else self._stats_service.load_player_map_stats(None)
+        for row in rows:
             stats_by_map[row.match_map_id].append(row)
 
         baseline_data: dict[str, dict[str, list[tuple[float, float]]]] = {
@@ -604,22 +707,49 @@ class CIRTrainingService:
         ridge_alpha: float,
         reference_mean: float,
         reference_population: list[float],
+        feature_names: tuple[str, ...],
+        clutch: ClutchCoverage,
+        evaluation: CIRTrainingEvaluation,
+        feature_engine: FeatureEngine,
     ) -> MetricVersion:
         self._session.execute(
             delete(MetricVersion).where(
                 MetricVersion.name == CIR_METRIC_NAME,
-                MetricVersion.version == CIR_V01_VERSION,
+                MetricVersion.version == self._persist_version,
             )
         )
+        enabled = {name: name in feature_names for name in CIR_V01_FEATURE_NAMES}
+        adr_model = feature_engine.adr_model
+        clutch_prior = feature_engine.clutch_prior
         metric_version = MetricVersion(
             name=CIR_METRIC_NAME,
-            version=CIR_V01_VERSION,
+            version=self._persist_version,
             training_start=training_start,
             training_end=training_end,
-            feature_names=list(CIR_V01_FEATURE_NAMES),
+            feature_names=list(feature_names),
             standardization_parameters=standardization.to_dict(),
             model_coefficients=coefficients.to_dict(),
-            regularization_parameters={"alpha": ridge_alpha},
+            regularization_parameters={
+                "alpha": ridge_alpha,
+                "events_used": self._events_used,
+                "feature_enabled": enabled,
+                "clutch_feature_enabled": clutch.clutch_feature_enabled,
+                "clutch_coverage_pct": clutch.clutch_coverage_pct,
+                "validation_metrics": evaluation.model_dump(),
+                "residual_adr": {
+                    "intercept": adr_model.intercept,
+                    "slope": adr_model.slope,
+                    "sample_count": adr_model.sample_count,
+                },
+                "bayesian_priors": {
+                    "clutch": {
+                        "alpha": clutch_prior.alpha,
+                        "beta": clutch_prior.beta,
+                        "population_rate": clutch_prior.population_rate,
+                        "prior_strength": clutch_prior.prior_strength,
+                    }
+                },
+            },
             shrinkage_parameters={"k": self._shrinkage_k, "reference_mean": reference_mean},
             reference_population={"shrunk_raw_cir_values": reference_population},
         )
@@ -709,12 +839,17 @@ def _chronological_map_ids(stats: list[PlayerMapStats]) -> list[UUID]:
     return sorted(grouped.keys(), key=sort_key)
 
 
-def _chronological_split(map_ids: list[UUID]) -> tuple[set[UUID], set[UUID], set[UUID]]:
+def _chronological_split(
+    map_ids: list[UUID],
+    *,
+    train_fraction: float = TRAIN_FRACTION,
+    validation_fraction: float = VALIDATION_FRACTION,
+) -> tuple[set[UUID], set[UUID], set[UUID]]:
     total = len(map_ids)
     if total == 0:
         return set(), set(), set()
-    train_end = max(1, int(total * TRAIN_FRACTION))
-    val_end = max(train_end + 1, int(total * (TRAIN_FRACTION + VALIDATION_FRACTION)))
+    train_end = max(1, int(total * train_fraction))
+    val_end = max(train_end + 1, int(total * (train_fraction + validation_fraction)))
     if total == 1:
         return {map_ids[0]}, set(), set()
     if val_end >= total:
@@ -740,14 +875,25 @@ def _split_lookup(
     return lookup
 
 
+def _coefficients_for_features(
+    feature_names: tuple[str, ...],
+    weights: NDArray[np.float64],
+) -> dict[str, float]:
+    coefficients = {name: 0.0 for name in CIR_V01_FEATURE_NAMES}
+    for index, name in enumerate(feature_names):
+        coefficients[name] = float(weights[index])
+    return coefficients
+
+
 def _design_matrix(
     team_maps: list[_TeamMapPrepared],
+    *,
+    feature_names: tuple[str, ...] = CIR_V01_FEATURE_NAMES,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     if not team_maps:
-        return np.empty((0, len(CIR_V01_FEATURE_NAMES) + 1)), np.empty(0)
+        return np.empty((0, len(feature_names) + 1)), np.empty(0)
     rows = [
-        [1.0] + [team_map.deltas.get(name, 0.0) for name in CIR_V01_FEATURE_NAMES]
-        for team_map in team_maps
+        [1.0] + [team_map.deltas.get(name, 0.0) for name in feature_names] for team_map in team_maps
     ]
     targets = [team_map.outcome_residual for team_map in team_maps]
     return np.array(rows, dtype=np.float64), np.array(targets, dtype=np.float64)
@@ -810,3 +956,16 @@ def _fit_univariate(x_values: list[float], y_values: list[float]) -> tuple[float
         return 0.0, float(np.mean(y))
     slope, intercept = np.polyfit(x, y, 1)
     return float(slope), float(intercept)
+
+
+def _exclude_unknown_agent_maps(
+    stats: list[PlayerMapStats],
+) -> tuple[list[PlayerMapStats], int]:
+    unknown_map_ids: set[UUID] = set()
+    for row in stats:
+        agent_name = row.agent.name if row.agent is not None else UNKNOWN_AGENT_NAME
+        if agent_name == UNKNOWN_AGENT_NAME or not is_known_agent(agent_name):
+            unknown_map_ids.add(row.match_map_id)
+    if not unknown_map_ids:
+        return stats, 0
+    return [row for row in stats if row.match_map_id not in unknown_map_ids], len(unknown_map_ids)

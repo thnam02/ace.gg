@@ -13,8 +13,16 @@ from app.metrics.cir_validation_config import (
 from app.metrics.cir_validation_metrics import distribution_summary, spearman_correlation
 from app.models import Agent, Match, MatchMap, PlayerMapStats
 from app.schemas.cir_validation import CIRValidationResult
+from app.services.cir_training_service import CIRTrainingService
 from app.services.cir_validation_service import CIRValidationService
 from tests.factories import seed_match_graph
+
+
+def _validation_service(db_session: Session) -> CIRValidationService:
+    return CIRValidationService(
+        db_session,
+        training_service=CIRTrainingService(db_session, require_complete_maps=False),
+    )
 
 
 def _seed_validation_graph(db_session: Session) -> dict[str, object]:
@@ -104,15 +112,18 @@ def test_distribution_summary_and_spearman() -> None:
     summary = distribution_summary([1.0, 2.0, 3.0, 4.0, 5.0])
     assert summary["count"] == 5
     assert summary["median"] == 3.0
-    assert spearman_correlation(
-        __import__("numpy").array([1.0, 2.0, 3.0]),
-        __import__("numpy").array([1.0, 2.0, 3.0]),
-    ) == 1.0
+    assert (
+        spearman_correlation(
+            __import__("numpy").array([1.0, 2.0, 3.0]),
+            __import__("numpy").array([1.0, 2.0, 3.0]),
+        )
+        == 1.0
+    )
 
 
 def test_validate_cir_v01_returns_typed_result(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    result = CIRValidationService(db_session).validate_cir_v01()
+    result = _validation_service(db_session).validate_cir_v01()
     assert isinstance(result, CIRValidationResult)
     assert result.dataset_quality.total_maps >= 4
     assert result.recommendations
@@ -120,7 +131,7 @@ def test_validate_cir_v01_returns_typed_result(db_session: Session) -> None:
 
 def test_dataset_quality_counts(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    quality = CIRValidationService(db_session).validate_cir_v01().dataset_quality
+    quality = _validation_service(db_session).validate_cir_v01().dataset_quality
     assert quality.total_players >= 2
     assert quality.total_player_map_observations > quality.total_maps
     assert quality.total_rounds > 0
@@ -131,7 +142,7 @@ def test_dataset_quality_counts(db_session: Session) -> None:
 
 def test_role_bias_grouping(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    role_bias = CIRValidationService(db_session).validate_cir_v01().role_bias
+    role_bias = _validation_service(db_session).validate_cir_v01().role_bias
     roles = {row.role for row in role_bias.distributions}
     assert "Duelist" in roles
     assert any(row.count > 0 for row in role_bias.distributions)
@@ -139,7 +150,7 @@ def test_role_bias_grouping(db_session: Session) -> None:
 
 def test_baseline_comparison_reports_all_metrics(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    comparison = CIRValidationService(db_session).validate_cir_v01().baseline_comparison
+    comparison = _validation_service(db_session).validate_cir_v01().baseline_comparison
     names = {metric.name for metric in comparison.metrics}
     assert "CIR" in names
     assert "K/D" in names
@@ -152,18 +163,22 @@ def test_baseline_comparison_reports_all_metrics(db_session: Session) -> None:
 
 def test_ablation_variants_cover_config(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    ablation = CIRValidationService(db_session).validate_cir_v01().ablation_results
+    ablation = _validation_service(db_session).validate_cir_v01().ablation_results
     variants = {row.variant for row in ablation.results}
     for variant in ABLATION_VARIANTS:
         if variant == "full_model" or ABLATION_VARIANTS[variant] is not None:
             assert variant in variants
     without_kast = next(row for row in ablation.results if row.variant == "without_kast")
     assert "kast_residual" not in without_kast.features_used
+    without_apr = next(row for row in ablation.results if row.variant == "without_apr")
+    assert "apr_residual" not in without_apr.features_used
+    assert without_apr.impact in {None, "IMPROVES", "NEGLIGIBLE", "HARMS", "STRONGLY_HARMS"}
+    assert without_apr.validation_mae is not None or without_apr.validation_rmse is None
 
 
 def test_shrinkage_sweep_covers_k_values(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    shrinkage = CIRValidationService(db_session).validate_cir_v01().shrinkage_analysis
+    shrinkage = _validation_service(db_session).validate_cir_v01().shrinkage_analysis
     ks = {row.k for row in shrinkage.results}
     assert ks == set(SHRINKAGE_K_VALUES)
     assert shrinkage.reference_k > 0
@@ -171,14 +186,14 @@ def test_shrinkage_sweep_covers_k_values(db_session: Session) -> None:
 
 def test_stability_threshold_reports(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    stability = CIRValidationService(db_session).validate_cir_v01().stability_analysis
+    stability = _validation_service(db_session).validate_cir_v01().stability_analysis
     thresholds = {row.round_threshold for row in stability.thresholds}
     assert thresholds == set(STABILITY_ROUND_THRESHOLDS)
 
 
 def test_missing_feature_diagnostics(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    missing = CIRValidationService(db_session).validate_cir_v01().missing_feature_analysis
+    missing = _validation_service(db_session).validate_cir_v01().missing_feature_analysis
     assert missing.missing_rates_by_feature
     assert any(rate > 0 for rate in missing.missing_rates_by_feature.values())
     assert missing.splits
@@ -186,7 +201,7 @@ def test_missing_feature_diagnostics(db_session: Session) -> None:
 
 def test_deterministic_outputs_on_fixture(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    service = CIRValidationService(db_session)
+    service = _validation_service(db_session)
     first = service.validate_cir_v01()
     second = service.validate_cir_v01()
     assert first.ablation_results.full_model_validation_rmse == (
@@ -195,9 +210,22 @@ def test_deterministic_outputs_on_fixture(db_session: Session) -> None:
     assert first.dataset_quality.total_rounds == second.dataset_quality.total_rounds
 
 
+def test_v02_recommendation_is_evidence_based(db_session: Session) -> None:
+    _seed_validation_graph(db_session)
+    result = _validation_service(db_session).validate_cir_v01()
+    assert result.v02_recommendation.decision in {
+        "KEEP CIR v0.1",
+        "REFINE TO CIR v0.2",
+        "RETHINK MODEL",
+    }
+    assert result.v02_recommendation.reasons
+    assert result.component_analysis.coefficient_signs
+    assert result.context_adjustment_audit.overall
+
+
 def test_train_only_baseline_no_test_leakage(db_session: Session) -> None:
     _seed_validation_graph(db_session)
-    service = CIRValidationService(db_session)
+    service = _validation_service(db_session)
     bundle = service._training_service.prepare_evaluation_bundle()
     train_maps = [row for row in bundle.team_maps if row.split == "train"]
     test_maps = [row for row in bundle.team_maps if row.split == "test"]

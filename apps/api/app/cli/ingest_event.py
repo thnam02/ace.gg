@@ -25,8 +25,16 @@ def _format_summary(summary: EventIngestionSummary) -> str:
             f"unresolved_players: {summary.unresolved_players}",
             f"ambiguous_players: {summary.ambiguous_players}",
             f"resolved_by_id: {summary.resolved_by_id}",
-            f"resolved_by_roster: {summary.resolved_by_roster}",
-            f"resolved_by_name: {summary.resolved_by_name}",
+            f"resolved_by_event_roster: {summary.resolved_by_event_roster}",
+            f"resolved_by_team_roster: {summary.resolved_by_team_roster}",
+            f"resolved_by_history: {summary.resolved_by_history}",
+            f"resolved_by_db_identity: {summary.resolved_by_db_identity}",
+            f"resolved_by_search: {summary.resolved_by_search}",
+            f"invalid_agent_values: {summary.invalid_agent_values}",
+            f"unknown_agent_rows: {summary.unknown_agent_rows}",
+            f"maps_complete: {summary.maps_complete}",
+            f"maps_incomplete: {summary.maps_incomplete}",
+            f"maps_empty: {summary.maps_empty}",
             f"dry_run: {summary.dry_run}",
         ]
     )

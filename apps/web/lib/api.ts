@@ -1,6 +1,8 @@
 import type {
+  CirMetricMetadata,
+  CirPlayerDetail,
+  CirRankingResponse,
   HealthResponse,
-  PlayerCompareEntry,
   PlayerComparison,
   PlayerDetailResponse,
   PlayerProfile,
@@ -48,18 +50,6 @@ export function summaryToProfile(summary: PlayerSummary): PlayerProfile {
   };
 }
 
-function compareEntryToProfile(entry: PlayerCompareEntry): PlayerProfile {
-  return summaryToProfile({
-    id: entry.player.id,
-    vlr_player_id: entry.player.vlr_player_id,
-    handle: entry.player.handle,
-    real_name: entry.player.real_name,
-    country: entry.player.country,
-    team: entry.player.team,
-    stats: entry.stats,
-  });
-}
-
 export async function fetchHealth(): Promise<HealthResponse | null> {
   try {
     return await apiFetch<HealthResponse>("/health");
@@ -74,19 +64,24 @@ export async function fetchPlayers(): Promise<PlayerProfile[]> {
 }
 
 export async function fetchPlayer(playerId: string): Promise<PlayerProfile | null> {
+  const detail = await fetchPlayerDetail(playerId);
+  if (detail == null) {
+    return null;
+  }
+  return summaryToProfile({
+    id: detail.player.id,
+    vlr_player_id: detail.player.vlr_player_id,
+    handle: detail.player.handle,
+    real_name: detail.player.real_name,
+    country: detail.player.country,
+    team: detail.player.team,
+    stats: detail.stats,
+  });
+}
+
+export async function fetchPlayerDetail(playerId: string): Promise<PlayerDetailResponse | null> {
   try {
-    const detail = await apiFetch<PlayerDetailResponse>(
-      `/players/${encodeURIComponent(playerId)}`,
-    );
-    return summaryToProfile({
-      id: detail.player.id,
-      vlr_player_id: detail.player.vlr_player_id,
-      handle: detail.player.handle,
-      real_name: detail.player.real_name,
-      country: detail.player.country,
-      team: detail.player.team,
-      stats: detail.stats,
-    });
+    return await apiFetch<PlayerDetailResponse>(`/players/${encodeURIComponent(playerId)}`);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       return null;
@@ -100,11 +95,42 @@ export async function fetchComparison(ids: string[]): Promise<PlayerComparison> 
   for (const id of ids) {
     params.append("player_ids", id);
   }
-  const payload = await apiFetch<{ players: PlayerCompareEntry[]; notes: string }>(
-    `/players/compare?${params.toString()}`,
-  );
-  return {
-    players: payload.players.map(compareEntryToProfile),
-    notes: payload.notes,
-  };
+  return apiFetch<PlayerComparison>(`/players/compare?${params.toString()}`);
+}
+
+export async function fetchCirRankings(options?: {
+  includeProvisional?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<CirRankingResponse> {
+  const params = new URLSearchParams();
+  if (options?.includeProvisional) {
+    params.set("include_provisional", "true");
+  }
+  params.set("limit", String(options?.limit ?? 50));
+  params.set("offset", String(options?.offset ?? 0));
+  const query = params.toString();
+  return apiFetch<CirRankingResponse>(`/rankings/cir?${query}`);
+}
+
+export async function fetchPlayerCir(playerId: string): Promise<CirPlayerDetail | null> {
+  try {
+    return await apiFetch<CirPlayerDetail>(`/players/${encodeURIComponent(playerId)}/cir`);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function fetchCirMetadata(): Promise<CirMetricMetadata | null> {
+  try {
+    return await apiFetch<CirMetricMetadata>("/metrics/cir");
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
 }

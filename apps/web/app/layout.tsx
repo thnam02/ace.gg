@@ -24,7 +24,7 @@ export const metadata: Metadata = {
     default: "VALORANT Scout",
     template: "%s · VALORANT Scout",
   },
-  description: "Dense player stats console for VALORANT roster comparison.",
+  description: "CIR rankings and player scouting for VALORANT.",
 };
 
 export default async function RootLayout({

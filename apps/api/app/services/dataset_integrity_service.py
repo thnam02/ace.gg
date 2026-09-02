@@ -7,8 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Match, MatchMap, Player, PlayerMapStats, Team
-
-EXPECTED_PLAYERS_PER_MAP = 10
+from app.services.map_completeness import EXPECTED_PLAYERS_PER_MAP
 
 
 @dataclass
@@ -56,8 +55,7 @@ class DatasetIntegrityService:
             lines.append("integrity_warnings:")
             for warning in report.warnings[:200]:
                 lines.append(
-                    f"  [{warning.code}] {warning.entity}={warning.entity_id}: "
-                    f"{warning.message}"
+                    f"  [{warning.code}] {warning.entity}={warning.entity_id}: {warning.message}"
                 )
             remaining = len(report.warnings) - 200
             if remaining > 0:
@@ -124,12 +122,12 @@ class DatasetIntegrityService:
     def _check_maps_and_matches(self, session: Session, report: DatasetIntegrityReport) -> None:
         matches = session.scalars(
             select(Match).options(
-                selectinload(Match.maps).selectinload(MatchMap.player_stats).selectinload(
-                    PlayerMapStats.team
-                ),
-                selectinload(Match.maps).selectinload(MatchMap.player_stats).selectinload(
-                    PlayerMapStats.player
-                ),
+                selectinload(Match.maps)
+                .selectinload(MatchMap.player_stats)
+                .selectinload(PlayerMapStats.team),
+                selectinload(Match.maps)
+                .selectinload(MatchMap.player_stats)
+                .selectinload(PlayerMapStats.player),
                 selectinload(Match.team_a),
                 selectinload(Match.team_b),
                 selectinload(Match.winner_team),
@@ -200,10 +198,7 @@ class DatasetIntegrityService:
         expected_rounds = None
         if match_map.team_a_score is not None and match_map.team_b_score is not None:
             expected_rounds = match_map.team_a_score + match_map.team_b_score
-            if (
-                match_map.rounds_played is not None
-                and match_map.rounds_played != expected_rounds
-            ):
+            if match_map.rounds_played is not None and match_map.rounds_played != expected_rounds:
                 self._warn(
                     report,
                     code="map_rounds_mismatch",
@@ -252,8 +247,7 @@ class DatasetIntegrityService:
                     report,
                     code="negative_combat_stat",
                     message=(
-                        f"{handle} has negative K/D/A "
-                        f"{stats.kills}/{stats.deaths}/{stats.assists}"
+                        f"{handle} has negative K/D/A {stats.kills}/{stats.deaths}/{stats.assists}"
                     ),
                     entity="player_map_stats",
                     entity_id=entity_id,
@@ -301,9 +295,7 @@ class DatasetIntegrityService:
                 self._warn(
                     report,
                     code="first_deaths_gt_rounds",
-                    message=(
-                        f"{handle} first_deaths={stats.first_deaths} > rounds={stats.rounds}"
-                    ),
+                    message=(f"{handle} first_deaths={stats.first_deaths} > rounds={stats.rounds}"),
                     entity="player_map_stats",
                     entity_id=entity_id,
                 )

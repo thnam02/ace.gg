@@ -84,15 +84,97 @@ export type PlayerDetailResponse = {
   aggregate: PlayerStatsAggregate;
 };
 
+export type CirCompareBlock = {
+  cir: number | null;
+  rank: number | null;
+  reliability: string | null;
+  rounds: number;
+  maps: number;
+  kpr: number | null;
+  expected_kpr: number | null;
+  kpr_residual: number | null;
+  dpr: number | null;
+  expected_dpr: number | null;
+  negative_dpr_residual: number | null;
+  combat_factor: number | null;
+  sample_status: string | null;
+  metric_version: string | null;
+};
+
 export type PlayerCompareEntry = {
   player: PlayerIdentity;
   stats: PlayerDashboardStats;
   aggregate: PlayerStatsAggregate;
+  cir: CirCompareBlock | null;
 };
 
 export type PlayerComparison = {
-  players: PlayerProfile[];
+  players: PlayerCompareEntry[];
   notes: string;
+};
+
+export type CirRankingPlayer = {
+  rank: number;
+  player_id: string;
+  handle: string;
+  team: TeamRef | null;
+  role: string | null;
+  primary_agent: string | null;
+  cir: number | null;
+  reliability: string | null;
+  rounds: number;
+  maps: number;
+  kpr: number | null;
+  dpr: number | null;
+  sample_status: string | null;
+  metric_version: string;
+};
+
+export type CirRankingResponse = {
+  metric_name: string;
+  metric_version: string;
+  total: number;
+  limit: number;
+  offset: number;
+  players: CirRankingPlayer[];
+};
+
+export type CirPlayerDetail = {
+  player_id: string;
+  handle: string;
+  team: TeamRef | null;
+  role: string | null;
+  cir: number | null;
+  raw_cir: number | null;
+  reliability: string | null;
+  reliability_pct: number | null;
+  sample_status: string | null;
+  rounds: number;
+  maps: number;
+  combat_factor: number | null;
+  kpr: number | null;
+  dpr: number | null;
+  expected_kpr: number | null;
+  expected_dpr: number | null;
+  kpr_residual: number | null;
+  negative_dpr_residual: number | null;
+  metric_version: string;
+  reference_period_start: string | null;
+  reference_period_end: string | null;
+  interpretation: string | null;
+};
+
+export type CirMetricMetadata = {
+  name: string;
+  version: string;
+  status: string;
+  description: string;
+  tooltip: string;
+  interpretation: string;
+  features: string[];
+  context: string;
+  scale: string;
+  established_sample: number;
 };
 
 /** Roster/compare view model derived from API summaries. */

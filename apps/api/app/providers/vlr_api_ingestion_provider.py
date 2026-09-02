@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
+from app.normalizers.vlr_api_parsing import normalize_player_name
 from app.providers.vlrggapi_client import VlrggApiClient
 from app.providers.vlrggapi_raw_cache import VlrggApiRawCache
 
@@ -34,6 +35,9 @@ class VlrApiIngestionProvider:
     def get_team(self, team_id: int) -> dict[str, Any]:
         return self._client.get_data("/v2/team", params={"id": team_id, "q": "profile"})
 
+    def search(self, query: str) -> dict[str, Any]:
+        return self._client.get_data("/v2/search", params={"q": query})
+
 
 class StaticVlrApiIngestionProvider:
     """In-memory vlrggapi JSON keyed by resource ID (tests/fixtures)."""
@@ -46,12 +50,16 @@ class StaticVlrApiIngestionProvider:
         event_matches: Mapping[int, dict[str, Any]] | None = None,
         players: Mapping[int, dict[str, Any]] | None = None,
         teams: Mapping[int, dict[str, Any]] | None = None,
+        searches: Mapping[str, dict[str, Any]] | None = None,
     ) -> None:
         self._matches = dict(matches)
         self._events = dict(events or {})
         self._event_matches = dict(event_matches or {})
         self._players = dict(players or {})
         self._teams = dict(teams or {})
+        self._searches = {
+            normalize_player_name(str(key)): value for key, value in (searches or {}).items()
+        }
 
     def close(self) -> None:
         return None
@@ -93,6 +101,15 @@ class StaticVlrApiIngestionProvider:
 
             raise VlrggApiHttpError(404, f"/v2/team?id={team_id}") from exc
 
+    def search(self, query: str) -> dict[str, Any]:
+        key = normalize_player_name(query)
+        try:
+            return self._searches[key]
+        except KeyError as exc:
+            from app.providers.vlrggapi_errors import VlrggApiHttpError
+
+            raise VlrggApiHttpError(404, f"/v2/search?q={query}") from exc
+
 
 class CachingVlrApiIngestionProvider:
     """Wrap a provider and persist raw JSON via VlrggApiRawCache."""
@@ -104,46 +121,52 @@ class CachingVlrApiIngestionProvider:
     ) -> None:
         self._provider = provider
         self._cache = cache
+        self.cache_hits = 0
+        self.cache_misses = 0
 
     def close(self) -> None:
         self._provider.close()
 
-    def get_match(self, match_id: int) -> dict[str, Any]:
-        cached = self._cache.load("matches", match_id)
+    def _cached(
+        self,
+        resource_type: str,
+        resource_id: int,
+        loader: Callable[[], dict[str, Any]],
+    ) -> dict[str, Any]:
+        cached = self._cache.load(resource_type, resource_id)
         if cached is not None:
+            self.cache_hits += 1
             return cached
-        data = self._provider.get_match(match_id)
-        self._cache.save("matches", match_id, data)
+        data = loader()
+        self._cache.save(resource_type, resource_id, data)
+        self.cache_misses += 1
         return data
+
+    def get_match(self, match_id: int) -> dict[str, Any]:
+        return self._cached("matches", match_id, lambda: self._provider.get_match(match_id))
 
     def get_event(self, event_id: int) -> dict[str, Any]:
-        cached = self._cache.load("events", event_id)
-        if cached is not None:
-            return cached
-        data = self._provider.get_event(event_id)
-        self._cache.save("events", event_id, data)
-        return data
+        return self._cached("events", event_id, lambda: self._provider.get_event(event_id))
 
     def get_event_matches(self, event_id: int) -> dict[str, Any]:
-        cached = self._cache.load("event_matches", event_id)
-        if cached is not None:
-            return cached
-        data = self._provider.get_event_matches(event_id)
-        self._cache.save("event_matches", event_id, data)
-        return data
+        return self._cached(
+            "event_matches",
+            event_id,
+            lambda: self._provider.get_event_matches(event_id),
+        )
 
     def get_player(self, player_id: int) -> dict[str, Any]:
-        cached = self._cache.load("players", player_id)
-        if cached is not None:
-            return cached
-        data = self._provider.get_player(player_id)
-        self._cache.save("players", player_id, data)
-        return data
+        return self._cached("players", player_id, lambda: self._provider.get_player(player_id))
 
     def get_team(self, team_id: int) -> dict[str, Any]:
-        cached = self._cache.load("teams", team_id)
+        return self._cached("teams", team_id, lambda: self._provider.get_team(team_id))
+
+    def search(self, query: str) -> dict[str, Any]:
+        cached = self._cache.load_key("player_search", query)
         if cached is not None:
+            self.cache_hits += 1
             return cached
-        data = self._provider.get_team(team_id)
-        self._cache.save("teams", team_id, data)
+        data = self._provider.search(query)
+        self._cache.save_key("player_search", query, data)
+        self.cache_misses += 1
         return data

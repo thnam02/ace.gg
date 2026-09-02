@@ -3,8 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
+import numpy as np
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.metrics.team_elo import (
     DEFAULT_BASELINE_RATING,
@@ -12,8 +13,12 @@ from app.metrics.team_elo import (
     expected_win_probability,
     update_rating,
 )
-from app.models import Match, PlayerMapStats, TeamRatingSnapshot
-from app.schemas.team_rating import OpponentStrengthFeatures, TeamRatingRebuildSummary
+from app.models import Match, PlayerMapStats, Team, TeamRatingSnapshot
+from app.schemas.team_rating import (
+    HighestRatedTeam,
+    OpponentStrengthFeatures,
+    TeamRatingRebuildSummary,
+)
 
 SKIPPED_MATCH_STATUSES = frozenset({"cancelled", "unplayed"})
 
@@ -107,10 +112,19 @@ class TeamRatingService:
             snapshots_written += 2
 
         self._session.flush()
+        latest = _latest_ratings(self._session)
+        values = [item.rating for item in latest]
         return TeamRatingRebuildSummary(
             matches_processed=processed,
             matches_skipped=skipped,
             snapshots_written=snapshots_written,
+            teams_rated=len(latest),
+            rating_min=min(values) if values else None,
+            rating_p25=_percentile(values, 25),
+            rating_median=_percentile(values, 50),
+            rating_p75=_percentile(values, 75),
+            rating_max=max(values) if values else None,
+            highest_rated_teams=latest[:10],
         )
 
     def get_opponent_strength_for_match_team(
@@ -157,9 +171,8 @@ class TeamRatingService:
         return ratings.get(team_id, self._config.baseline_rating)
 
     def _load_ratable_matches(self) -> list[Match]:
-        query = (
-            select(Match)
-            .order_by(Match.played_at.asc().nulls_last(), Match.vlr_match_id, Match.id)
+        query = select(Match).order_by(
+            Match.played_at.asc().nulls_last(), Match.vlr_match_id, Match.id
         )
         return list(self._session.scalars(query).all())
 
@@ -175,3 +188,36 @@ class TeamRatingService:
         if match.winner_team_id not in {match.team_a_id, match.team_b_id}:
             return False
         return True
+
+
+def _latest_ratings(session: Session) -> list[HighestRatedTeam]:
+    snapshots = list(
+        session.scalars(
+            select(TeamRatingSnapshot).options(selectinload(TeamRatingSnapshot.team))
+        ).all()
+    )
+    latest: dict[UUID, TeamRatingSnapshot] = {}
+    for snapshot in snapshots:
+        current = latest.get(snapshot.team_id)
+        if current is None or snapshot.effective_at > current.effective_at:
+            latest[snapshot.team_id] = snapshot
+        elif snapshot.effective_at == current.effective_at and str(snapshot.id) > str(current.id):
+            latest[snapshot.team_id] = snapshot
+    ranked = sorted(latest.values(), key=lambda item: item.rating_after, reverse=True)
+    results: list[HighestRatedTeam] = []
+    for snapshot in ranked:
+        team = snapshot.team
+        results.append(
+            HighestRatedTeam(
+                team_id=str(snapshot.team_id),
+                team_name=team.name if isinstance(team, Team) else str(snapshot.team_id),
+                rating=float(snapshot.rating_after),
+            )
+        )
+    return results
+
+
+def _percentile(values: list[float], pct: float) -> float | None:
+    if not values:
+        return None
+    return float(np.percentile(np.array(values, dtype=np.float64), pct))
