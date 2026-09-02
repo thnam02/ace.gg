@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import re
 
-import httpx
-
+from app.providers.vlrggapi_client import VlrggApiClient
 from app.schemas.player import PlayerProfile, PlayerStats
 
 _VLR_PLAYER_PATH = re.compile(r"/player/(\d+)")
@@ -121,13 +122,15 @@ class VlrPlayerDataProvider:
         stats_timespan: str,
         player_timespan: str,
         timeout: float = 15.0,
+        *,
+        client: VlrggApiClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._default_players = default_players
         self._stats_region = stats_region
         self._stats_timespan = stats_timespan
         self._player_timespan = player_timespan
-        self._client = httpx.Client(base_url=self._base_url, timeout=timeout)
+        self._client = client or VlrggApiClient(base_url, timeout=timeout)
         self._hs_cache: dict[str, float] | None = None
 
     def close(self) -> None:
@@ -267,16 +270,12 @@ class VlrPlayerDataProvider:
 
     def _get_json(self, path: str, params: dict[str, str | int] | None = None) -> object | None:
         try:
-            response = self._client.get(path, params=params)
-            response.raise_for_status()
-        except httpx.HTTPError:
+            payload = self._client.get_json(path, params=params)
+        except Exception:
             return None
 
-        payload = response.json()
-        if not isinstance(payload, dict):
-            return None
-
-        if payload.get("status") != "success":
+        status = payload.get("status")
+        if status != "success":
             return None
 
         return payload.get("data")

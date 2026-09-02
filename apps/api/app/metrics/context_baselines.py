@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
@@ -15,7 +15,7 @@ from app.metrics.derived import safe_ratio
 from app.schemas.context_features import ContextAdjustedFeatures
 
 
-class BaselineLevel(str, Enum):
+class BaselineLevel(StrEnum):
     AGENT_MAP_TIER = "agent_map_tier"
     ROLE_MAP_TIER = "role_map_tier"
     ROLE_TIER = "role_tier"
