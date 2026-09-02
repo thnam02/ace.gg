@@ -11,6 +11,14 @@ from app.schemas.ingestion import (
     NormalizedTeam,
 )
 from app.schemas.player import PlayerComparison, PlayerProfile, PlayerStats
+from app.schemas.stats import (
+    AggregateStatsRaw,
+    MapStatsDerived,
+    MapStatsFeatures,
+    MapStatsRaw,
+    PlayerStatsAggregate,
+    PlayerStatsScope,
+)
 
 __all__ = [
     "HealthResponse",
@@ -26,4 +34,10 @@ __all__ = [
     "PlayerComparison",
     "PlayerProfile",
     "PlayerStats",
+    "AggregateStatsRaw",
+    "MapStatsDerived",
+    "MapStatsFeatures",
+    "MapStatsRaw",
+    "PlayerStatsAggregate",
+    "PlayerStatsScope",
 ]
