@@ -101,10 +101,11 @@ def test_known_handle_name_resolution() -> None:
     resolver = PlayerIdentityResolver(
         {},
         known_handles={"legacy": 4242},
+        player_teams={4242: {91001}},
         diagnostics=diagnostics,
     )
-    assert resolver.resolve("Legacy", None) == 4242
-    assert diagnostics.player_identity.resolved_by_db_handle == 1
+    assert resolver.resolve("Legacy", None, team_vlr_id=91001) == 4242
+    assert diagnostics.player_identity.resolved_by_db_identity == 1
 
 
 def test_event_tier_resolver() -> None:

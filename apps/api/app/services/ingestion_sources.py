@@ -16,6 +16,7 @@ from app.providers.vlr_api_ingestion_provider import (
 from app.providers.vlr_provider import VLRProvider
 from app.schemas.ingestion import NormalizedEvent, NormalizedEventPageData, NormalizedMatchData
 from app.schemas.ingestion_diagnostics import IngestionDiagnostics
+from app.services.historical_player_identity import HistoricalPlayerIdentityResolver
 
 
 class HtmlEventIngestionSource:
@@ -63,6 +64,9 @@ class VlrApiEventIngestionSource:
         diagnostics: IngestionDiagnostics | None = None,
         known_handles: dict[str, int] | None = None,
         known_ambiguous: set[str] | None = None,
+        history_index: dict[tuple[str, int], set[int]] | None = None,
+        player_teams: dict[int, set[int]] | None = None,
+        identity_lookup: HistoricalPlayerIdentityResolver | None = None,
     ) -> None:
         self._provider = provider
         self._diagnostics = diagnostics or IngestionDiagnostics()
@@ -70,6 +74,9 @@ class VlrApiEventIngestionSource:
         self._match_normalizer = match_normalizer or VlrApiMatchNormalizer(self._diagnostics)
         self._known_handles = known_handles or {}
         self._known_ambiguous = known_ambiguous or set()
+        self._history_index = history_index or {}
+        self._player_teams = player_teams or {}
+        self._identity_lookup = identity_lookup
         self._identity_resolver: PlayerIdentityResolver | None = None
         self._event: NormalizedEvent | None = None
         self._event_data: dict[str, Any] | None = None
@@ -88,12 +95,7 @@ class VlrApiEventIngestionSource:
             event_matches_data,
         )
         self._event_data = event_data
-        self._identity_resolver = PlayerIdentityResolver.from_event_teams(
-            event_data,
-            known_handles=self._known_handles,
-            known_ambiguous=self._known_ambiguous,
-            diagnostics=self._diagnostics,
-        )
+        self._identity_resolver = self._build_identity_resolver()
         self._event = page_data.event
         self._team_profile_cache.clear()
         return page_data
@@ -114,15 +116,26 @@ class VlrApiEventIngestionSource:
             return
         if self._event_data is None:
             return
-        self._identity_resolver = PlayerIdentityResolver.from_event_teams(
+        resolver = self._build_identity_resolver()
+        if resolver is None:
+            return
+        self._identity_resolver = resolver
+        for team_id, payload in self._team_profile_cache.items():
+            if payload is not None:
+                resolver.add_team_roster(team_id, payload)
+
+    def _build_identity_resolver(self) -> PlayerIdentityResolver | None:
+        if self._event_data is None:
+            return None
+        return PlayerIdentityResolver.from_event_teams(
             self._event_data,
             known_handles=self._known_handles,
             known_ambiguous=self._known_ambiguous,
+            history_index=self._history_index,
+            player_teams=self._player_teams,
+            identity_lookup=self._identity_lookup,
             diagnostics=self._diagnostics,
         )
-        for team_id, payload in self._team_profile_cache.items():
-            if payload is not None:
-                self._identity_resolver.add_team_roster(team_id, payload)
 
     def _enrich_team_rosters(self, match_data: dict[str, Any]) -> None:
         if self._identity_resolver is None:
@@ -148,3 +161,12 @@ class VlrApiEventIngestionSource:
         self._team_profile_cache[team_id] = profile
         self._diagnostics.team_profiles_fetched += 1
         self._identity_resolver.add_team_roster(team_id, profile)
+
+    def finalize_diagnostics(self) -> None:
+        lookup = self._identity_lookup
+        if lookup is None:
+            return
+        self._diagnostics.player_searches_fetched = lookup.searches_fetched
+        self._diagnostics.player_searches_cached = lookup.searches_cached
+        self._diagnostics.player_profiles_fetched = lookup.profiles_fetched
+        self._diagnostics.player_profiles_cached = lookup.profiles_cached

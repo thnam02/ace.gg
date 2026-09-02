@@ -48,6 +48,10 @@ def as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
 
 
+def normalize_player_name(name: str) -> str:
+    return " ".join(name.strip().lower().split())
+
+
 def unwrap_match_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Accept fixture-style match objects or live vlrggapi `{segments: [match]}`."""
     if payload.get("match_id") is not None and payload.get("maps") is not None:
@@ -92,6 +96,108 @@ def parse_team_roster_players(payload: dict[str, Any]) -> list[tuple[int, str]]:
             continue
         players.append((player_id, handle))
     return players
+
+
+def unwrap_player_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    if (
+        current.get("info") is not None
+        or current.get("current_team") is not None
+        or current.get("current_teams") is not None
+        or current.get("past_teams") is not None
+        or current.get("name")
+    ):
+        if current.get("segments") is None:
+            return current
+    segments = current.get("segments")
+    if isinstance(segments, list) and segments:
+        first = as_dict(segments[0])
+        if first:
+            return first
+    if isinstance(segments, dict):
+        return segments
+    return current
+
+
+def parse_player_profile_handle(payload: dict[str, Any]) -> str:
+    profile = unwrap_player_profile(payload)
+    info = as_dict(profile.get("info"))
+    return str(info.get("name") or profile.get("name") or "").strip()
+
+
+def parse_player_profile_teams(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    profile = unwrap_player_profile(payload)
+    teams: list[dict[str, Any]] = []
+    current = profile.get("current_team")
+    if isinstance(current, dict) and (current.get("name") or current.get("tag")):
+        teams.append(current)
+    for item in as_list(profile.get("current_teams")):
+        row = as_dict(item)
+        if row.get("name") or row.get("tag"):
+            teams.append(row)
+    for item in as_list(profile.get("past_teams")):
+        row = as_dict(item)
+        if row.get("name") or row.get("tag"):
+            teams.append(row)
+    return teams
+
+
+def parse_search_players(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    current = payload
+    nested = as_dict(current.get("data"))
+    if nested:
+        current = nested
+    segments = current.get("segments")
+    results: dict[str, Any] = {}
+    if isinstance(segments, dict):
+        results = as_dict(segments.get("results"))
+    elif isinstance(segments, list) and segments:
+        results = as_dict(as_dict(segments[0]).get("results"))
+    else:
+        results = as_dict(current.get("results"))
+    return [as_dict(item) for item in as_list(results.get("players"))]
+
+
+def search_result_handle(row: dict[str, Any]) -> str:
+    raw = str(row.get("name") or row.get("alias") or "").strip()
+    return raw.split("(")[0].strip()
+
+
+def normalize_team_token(value: str) -> str:
+    return " ".join(value.strip().lower().split())
+
+
+def profile_matches_team(
+    payload: dict[str, Any],
+    *,
+    team_name: str | None,
+    team_tag: str | None,
+) -> bool:
+    tokens = {
+        token
+        for token in (
+            normalize_team_token(team_name or ""),
+            normalize_team_token(team_tag or ""),
+        )
+        if token
+    }
+    if not tokens:
+        return False
+    for team in parse_player_profile_teams(payload):
+        name = normalize_team_token(str(team.get("name") or ""))
+        tag = normalize_team_token(str(team.get("tag") or ""))
+        if name and name in tokens:
+            return True
+        if tag and tag in tokens:
+            return True
+    return False
+
+
+def profile_has_team_evidence(payload: dict[str, Any]) -> bool:
+    return bool(parse_player_profile_teams(payload))
 
 
 def _is_truthy(value: Any) -> bool:

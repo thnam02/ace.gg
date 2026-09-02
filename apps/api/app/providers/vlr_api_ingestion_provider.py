@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from app.normalizers.vlr_api_parsing import normalize_player_name
 from app.providers.vlrggapi_client import VlrggApiClient
 from app.providers.vlrggapi_raw_cache import VlrggApiRawCache
 
@@ -34,6 +35,9 @@ class VlrApiIngestionProvider:
     def get_team(self, team_id: int) -> dict[str, Any]:
         return self._client.get_data("/v2/team", params={"id": team_id, "q": "profile"})
 
+    def search(self, query: str) -> dict[str, Any]:
+        return self._client.get_data("/v2/search", params={"q": query})
+
 
 class StaticVlrApiIngestionProvider:
     """In-memory vlrggapi JSON keyed by resource ID (tests/fixtures)."""
@@ -46,12 +50,16 @@ class StaticVlrApiIngestionProvider:
         event_matches: Mapping[int, dict[str, Any]] | None = None,
         players: Mapping[int, dict[str, Any]] | None = None,
         teams: Mapping[int, dict[str, Any]] | None = None,
+        searches: Mapping[str, dict[str, Any]] | None = None,
     ) -> None:
         self._matches = dict(matches)
         self._events = dict(events or {})
         self._event_matches = dict(event_matches or {})
         self._players = dict(players or {})
         self._teams = dict(teams or {})
+        self._searches = {
+            normalize_player_name(str(key)): value for key, value in (searches or {}).items()
+        }
 
     def close(self) -> None:
         return None
@@ -92,6 +100,15 @@ class StaticVlrApiIngestionProvider:
             from app.providers.vlrggapi_errors import VlrggApiHttpError
 
             raise VlrggApiHttpError(404, f"/v2/team?id={team_id}") from exc
+
+    def search(self, query: str) -> dict[str, Any]:
+        key = normalize_player_name(query)
+        try:
+            return self._searches[key]
+        except KeyError as exc:
+            from app.providers.vlrggapi_errors import VlrggApiHttpError
+
+            raise VlrggApiHttpError(404, f"/v2/search?q={query}") from exc
 
 
 class CachingVlrApiIngestionProvider:
@@ -146,4 +163,12 @@ class CachingVlrApiIngestionProvider:
             return cached
         data = self._provider.get_team(team_id)
         self._cache.save("teams", team_id, data)
+        return data
+
+    def search(self, query: str) -> dict[str, Any]:
+        cached = self._cache.load_key("player_search", query)
+        if cached is not None:
+            return cached
+        data = self._provider.search(query)
+        self._cache.save_key("player_search", query, data)
         return data

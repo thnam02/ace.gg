@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from app.normalizers.player_identity_resolver import PlayerIdentityResolver
@@ -71,11 +72,14 @@ class VlrApiMatchNormalizer:
             status=str(match_data.get("status") or None),
         )
 
+        played_at = parse_datetime_text(str(match_data.get("date") or ""))
         maps = self._normalize_maps(
             match_data,
             team_a=team_a,
             team_b=team_b,
             identity_resolver=identity_resolver,
+            match_date=played_at,
+            event_id=event_id,
         )
 
         winner_id = _series_winner(team_a, team_b, maps)
@@ -89,7 +93,7 @@ class VlrApiMatchNormalizer:
             team_a=team_a,
             team_b=team_b,
             winner_vlr_team_id=winner_id,
-            played_at=parse_datetime_text(str(match_data.get("date") or "")),
+            played_at=played_at,
             best_of=parse_best_of(
                 str(match_data.get("map_vetos") or ""),
                 len(maps),
@@ -124,6 +128,8 @@ class VlrApiMatchNormalizer:
         team_a: NormalizedTeam,
         team_b: NormalizedTeam,
         identity_resolver: PlayerIdentityResolver | None,
+        match_date: datetime | None,
+        event_id: int,
     ) -> list[NormalizedMatchMap]:
         performance = as_dict(match_data.get("performance"))
         maps: list[NormalizedMatchMap] = []
@@ -146,20 +152,28 @@ class VlrApiMatchNormalizer:
             team_a_stats = self._normalize_player_stats(
                 as_list(players_payload.get("team1")),
                 team_vlr_id=team_a.vlr_team_id,
+                team_name=team_a.name,
+                team_tag=team_a.tag,
                 performance=performance,
                 identity_resolver=identity_resolver,
                 map_rounds=map_rounds,
                 match_id=parse_vlr_id(match_data.get("match_id")),
                 map_number=index,
+                match_date=match_date,
+                event_id=event_id,
             )
             team_b_stats = self._normalize_player_stats(
                 as_list(players_payload.get("team2")),
                 team_vlr_id=team_b.vlr_team_id,
+                team_name=team_b.name,
+                team_tag=team_b.tag,
                 performance=performance,
                 identity_resolver=identity_resolver,
                 map_rounds=map_rounds,
                 match_id=parse_vlr_id(match_data.get("match_id")),
                 map_number=index,
+                match_date=match_date,
+                event_id=event_id,
             )
             player_stats = team_a_stats + team_b_stats
             if (
@@ -193,11 +207,15 @@ class VlrApiMatchNormalizer:
         players: list[Any],
         *,
         team_vlr_id: int,
+        team_name: str,
+        team_tag: str,
         performance: dict[str, Any],
         identity_resolver: PlayerIdentityResolver | None,
         map_rounds: int | None,
         match_id: int | None,
         map_number: int,
+        match_date: datetime | None,
+        event_id: int,
     ) -> list[NormalizedPlayerMapStats]:
         stats: list[NormalizedPlayerMapStats] = []
         for entry in players:
@@ -213,6 +231,10 @@ class VlrApiMatchNormalizer:
                     handle,
                     explicit_id,
                     team_vlr_id=team_vlr_id,
+                    team_name=team_name,
+                    team_tag=team_tag,
+                    match_date=match_date,
+                    event_id=event_id,
                 )
             elif explicit_id is not None:
                 player_id = explicit_id

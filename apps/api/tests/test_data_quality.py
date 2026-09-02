@@ -137,15 +137,28 @@ def test_team_roster_fallback() -> None:
     assert diagnostics.player_identity.resolved_by_team_roster == 1
 
 
-def test_db_handle_fallback() -> None:
+def test_db_handle_requires_team_evidence() -> None:
     diagnostics = IngestionDiagnostics()
     resolver = PlayerIdentityResolver(
         {},
         known_handles={"legacy": 4242},
         diagnostics=diagnostics,
     )
-    assert resolver.resolve("Legacy") == 4242
-    assert diagnostics.player_identity.resolved_by_db_handle == 1
+    assert resolver.resolve("Legacy") is None
+    assert diagnostics.unresolved_player_count() == 1
+
+
+def test_db_identity_with_team_evidence() -> None:
+    diagnostics = IngestionDiagnostics()
+    resolver = PlayerIdentityResolver(
+        {},
+        known_handles={"legacy": 4242},
+        player_teams={4242: {91001}},
+        diagnostics=diagnostics,
+    )
+    assert resolver.resolve("Legacy", team_vlr_id=91001) == 4242
+    assert diagnostics.player_identity.resolved_by_db_identity == 1
+    assert resolver.resolve("Legacy", team_vlr_id=99999) is None
 
 
 def test_ambiguous_names_are_not_merged() -> None:

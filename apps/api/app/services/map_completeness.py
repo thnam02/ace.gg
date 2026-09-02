@@ -5,9 +5,9 @@ from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import MatchMap, PlayerMapStats
+from app.models import Match, MatchMap, PlayerMapStats
 
 EXPECTED_PLAYERS_PER_MAP = 10
 
@@ -31,6 +31,20 @@ def classify_player_stat_count(count: int) -> MapCompleteness:
 
 
 @dataclass
+class TierMapCompleteness:
+    maps_played: int = 0
+    maps_complete: int = 0
+    maps_incomplete: int = 0
+    maps_empty: int = 0
+
+    @property
+    def complete_map_pct(self) -> float:
+        if self.maps_played == 0:
+            return 0.0
+        return 100.0 * self.maps_complete / self.maps_played
+
+
+@dataclass
 class MapCompletenessSummary:
     maps_total: int = 0
     maps_played: int = 0
@@ -40,6 +54,7 @@ class MapCompletenessSummary:
     complete_map_ids: set[UUID] = field(default_factory=set)
     incomplete_map_ids: set[UUID] = field(default_factory=set)
     empty_map_ids: set[UUID] = field(default_factory=set)
+    by_tier: dict[str, TierMapCompleteness] = field(default_factory=dict)
 
     @property
     def complete_map_pct(self) -> float:
@@ -63,7 +78,11 @@ def summarize_map_completeness(session: Session) -> MapCompletenessSummary:
             select(PlayerMapStats.match_map_id, func.count()).group_by(PlayerMapStats.match_map_id)
         ).all()
     }
-    maps = list(session.scalars(select(MatchMap)).all())
+    maps = list(
+        session.scalars(
+            select(MatchMap).options(selectinload(MatchMap.match).selectinload(Match.event))
+        ).all()
+    )
     summary = MapCompletenessSummary(maps_total=len(maps))
     for match_map in maps:
         if not is_played_map(match_map):
@@ -71,15 +90,22 @@ def summarize_map_completeness(session: Session) -> MapCompletenessSummary:
         summary.maps_played += 1
         count = int(counts.get(match_map.id, 0))
         classification = classify_player_stat_count(count)
+        event = match_map.match.event if match_map.match is not None else None
+        tier = event.tier if event is not None and event.tier else "Unknown"
+        tier_summary = summary.by_tier.setdefault(tier, TierMapCompleteness())
+        tier_summary.maps_played += 1
         if classification is MapCompleteness.COMPLETE:
             summary.maps_complete += 1
             summary.complete_map_ids.add(match_map.id)
+            tier_summary.maps_complete += 1
         elif classification is MapCompleteness.EMPTY:
             summary.maps_empty += 1
             summary.empty_map_ids.add(match_map.id)
+            tier_summary.maps_empty += 1
         else:
             summary.maps_incomplete += 1
             summary.incomplete_map_ids.add(match_map.id)
+            tier_summary.maps_incomplete += 1
     return summary
 
 

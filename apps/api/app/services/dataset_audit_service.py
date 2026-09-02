@@ -44,13 +44,26 @@ class DatasetAuditReport:
     resolved_by_id: int = 0
     resolved_by_event_roster: int = 0
     resolved_by_team_roster: int = 0
-    resolved_by_db_handle: int = 0
+    resolved_by_history: int = 0
+    resolved_by_db_identity: int = 0
+    resolved_by_search: int = 0
     unresolved: int = 0
     ambiguous: int = 0
+    unresolved_identity_slots_pct: float = 0.0
     maps_complete: int = 0
     maps_incomplete: int = 0
     maps_empty: int = 0
     complete_map_pct: float = 0.0
+    t1_maps_played: int = 0
+    t1_maps_complete: int = 0
+    t1_maps_incomplete: int = 0
+    t1_maps_empty: int = 0
+    t1_complete_map_pct: float = 0.0
+    t2_maps_played: int = 0
+    t2_maps_complete: int = 0
+    t2_maps_incomplete: int = 0
+    t2_maps_empty: int = 0
+    t2_complete_map_pct: float = 0.0
     invalid_agent_values: list[str] = field(default_factory=list)
     unknown_agent_rows: int = 0
     maps_eligible_for_cir: int = 0
@@ -170,6 +183,24 @@ class DatasetAuditService:
         report.maps_incomplete = completeness.maps_incomplete
         report.maps_empty = completeness.maps_empty
         report.complete_map_pct = completeness.complete_map_pct
+        t1 = completeness.by_tier.get("T1")
+        t2 = completeness.by_tier.get("T2")
+        if t1 is not None:
+            report.t1_maps_played = t1.maps_played
+            report.t1_maps_complete = t1.maps_complete
+            report.t1_maps_incomplete = t1.maps_incomplete
+            report.t1_maps_empty = t1.maps_empty
+            report.t1_complete_map_pct = t1.complete_map_pct
+        if t2 is not None:
+            report.t2_maps_played = t2.maps_played
+            report.t2_maps_complete = t2.maps_complete
+            report.t2_maps_incomplete = t2.maps_incomplete
+            report.t2_maps_empty = t2.maps_empty
+            report.t2_complete_map_pct = t2.complete_map_pct
+        expected_slots = completeness.maps_played * 10
+        if expected_slots:
+            missing_slots = max(0, expected_slots - report.player_map_stats)
+            report.unresolved_identity_slots_pct = 100.0 * missing_slots / expected_slots
         report.maps_eligible_for_cir = completeness.maps_used_for_cir
         report.player_map_stats_eligible_for_cir = sum(
             1 for row in stats_rows if row.match_map_id in completeness.complete_map_ids
@@ -189,9 +220,11 @@ class DatasetAuditService:
             report.resolved_by_team_roster = sum(
                 item.resolved_by_team_roster for item in ingest_summaries
             )
-            report.resolved_by_db_handle = sum(
-                item.resolved_by_db_handle for item in ingest_summaries
+            report.resolved_by_history = sum(item.resolved_by_history for item in ingest_summaries)
+            report.resolved_by_db_identity = sum(
+                item.resolved_by_db_identity for item in ingest_summaries
             )
+            report.resolved_by_search = sum(item.resolved_by_search for item in ingest_summaries)
             report.unresolved = sum(item.unresolved_players for item in ingest_summaries)
             report.ambiguous = sum(item.ambiguous_players for item in ingest_summaries)
             report.unresolved_identity_count = report.unresolved
@@ -213,15 +246,20 @@ class DatasetAuditService:
             f"  resolved_by_id: {report.resolved_by_id}",
             f"  resolved_by_event_roster: {report.resolved_by_event_roster}",
             f"  resolved_by_team_roster: {report.resolved_by_team_roster}",
-            f"  resolved_by_db_handle: {report.resolved_by_db_handle}",
+            f"  resolved_by_history: {report.resolved_by_history}",
+            f"  resolved_by_db_identity: {report.resolved_by_db_identity}",
+            f"  resolved_by_search: {report.resolved_by_search}",
             f"  unresolved: {report.unresolved}",
             f"  ambiguous: {report.ambiguous}",
+            f"  unresolved_identity_slots_pct: {report.unresolved_identity_slots_pct:.1f}%",
             "",
             "completeness:",
             f"  maps_complete: {report.maps_complete}",
             f"  maps_incomplete: {report.maps_incomplete}",
             f"  maps_empty: {report.maps_empty}",
             f"  complete_map_pct: {report.complete_map_pct:.1f}%",
+            f"  t1_complete_map_pct: {report.t1_complete_map_pct:.1f}%",
+            f"  t2_complete_map_pct: {report.t2_complete_map_pct:.1f}%",
             "",
             "observations_by_role:",
         ]
