@@ -1,0 +1,4 @@
+# Daily VCT 2026 synchronization at 03:00 UTC.
+# Change VCT_SYNC_CRON (compose) or this schedule to increase cadence, e.g. every 6 hours:
+# 0 */6 * * * python -m app.cli.sync_vct_2026
+0 3 * * * python -m app.cli.sync_vct_2026

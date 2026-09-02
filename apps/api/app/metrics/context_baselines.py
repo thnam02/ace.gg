@@ -113,12 +113,8 @@ class ContextExposure:
 
 @dataclass
 class BaselineRegistry:
-    agent_map_tier: dict[tuple[str, str, str | None], ContextExposure] = field(
-        default_factory=dict
-    )
-    role_map_tier: dict[tuple[str, str, str | None], ContextExposure] = field(
-        default_factory=dict
-    )
+    agent_map_tier: dict[tuple[str, str, str | None], ContextExposure] = field(default_factory=dict)
+    role_map_tier: dict[tuple[str, str, str | None], ContextExposure] = field(default_factory=dict)
     role_tier: dict[tuple[str, str | None], ContextExposure] = field(default_factory=dict)
     tier: dict[str | None, ContextExposure] = field(default_factory=dict)
     global_exposure: ContextExposure = field(default_factory=ContextExposure)

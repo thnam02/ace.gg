@@ -23,9 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     with SessionLocal() as session:
-        service = CirSnapshotService(
-            session, require_complete_maps=not args.allow_incomplete_maps
-        )
+        service = CirSnapshotService(session, require_complete_maps=not args.allow_incomplete_maps)
         try:
             frozen, players, failures = service.refresh(version=args.version)
             session.commit()

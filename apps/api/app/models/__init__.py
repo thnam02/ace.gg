@@ -1,4 +1,5 @@
 from app.models.agent import Agent
+from app.models.data_sync_run import DataSyncRun
 from app.models.event import Event
 from app.models.match import Match
 from app.models.match_map import MatchMap
@@ -12,6 +13,7 @@ from app.models.team_rating_snapshot import TeamRatingSnapshot
 
 __all__ = [
     "Agent",
+    "DataSyncRun",
     "Event",
     "Match",
     "MatchMap",

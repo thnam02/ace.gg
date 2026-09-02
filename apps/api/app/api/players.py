@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.schemas.cir_ranking import CirCompareResponse, CirPlayerDetail
+from app.schemas.cir_ranking import CirCompareResponse, CirPlayerDetail, PlayerOptionsResponse
 from app.schemas.player_api import (
     PlayerCompareResponse,
     PlayerDetailResponse,
@@ -55,9 +55,37 @@ def list_players(
     return service.list_players(filters)
 
 
+@router.get("/options", response_model=PlayerOptionsResponse)
+def list_player_options(
+    search: str | None = Query(None),
+    team: str | None = Query(None),
+    role: str | None = Query(None),
+    tier: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    ranking: CirRankingService = Depends(get_ranking_service),
+) -> PlayerOptionsResponse:
+    try:
+        return ranking.list_options(
+            search=search,
+            team=team,
+            role=role,
+            tier=tier,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/compare", response_model=PlayerCompareResponse)
 def compare_players(
-    player_ids: list[str] = Query(..., min_length=2, description="Player IDs to compare"),
+    player_ids: list[str] = Query(
+        ...,
+        min_length=2,
+        max_length=4,
+        description="Player IDs to compare",
+    ),
     filters: StatsQueryParams = Depends(_stats_filters),
     service: PlayerQueryService = Depends(get_player_query_service),
     ranking: CirRankingService = Depends(get_ranking_service),
@@ -81,7 +109,12 @@ def compare_players(
 
 @router.get("/compare/cir", response_model=CirCompareResponse)
 def compare_players_cir(
-    player_ids: list[str] = Query(..., min_length=2, description="Player IDs to compare"),
+    player_ids: list[str] = Query(
+        ...,
+        min_length=2,
+        max_length=4,
+        description="Player IDs to compare",
+    ),
     metric_version: str | None = Query(None),
     service: CirRankingService = Depends(get_ranking_service),
 ) -> CirCompareResponse:

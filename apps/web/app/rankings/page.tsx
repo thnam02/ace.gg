@@ -1,8 +1,14 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 
 import { AlertBanner } from "@/components/alert-banner";
 import { CirRankings } from "@/components/cir-rankings";
 import { fetchCirMetadata, fetchCirRankings } from "@/lib/api";
+import { parseFlag } from "@/lib/compare";
+
+export const metadata: Metadata = {
+  title: "Rankings",
+};
 
 type RankingsPageProps = {
   searchParams: Promise<{ include_provisional?: string | string[] }>;
@@ -10,15 +16,12 @@ type RankingsPageProps = {
 
 export default async function RankingsPage({ searchParams }: RankingsPageProps) {
   const params = await searchParams;
-  const raw = params.include_provisional;
-  const includeProvisional = Array.isArray(raw)
-    ? raw.includes("1") || raw.includes("true")
-    : raw === "1" || raw === "true";
+  const includeProvisional = parseFlag(params.include_provisional);
   let rankings = null;
-  let metadata = null;
+  let cirMetadata = null;
   try {
-    [rankings, metadata] = await Promise.all([
-      fetchCirRankings({ includeProvisional, limit: 100 }),
+    [rankings, cirMetadata] = await Promise.all([
+      fetchCirRankings({ includeProvisional }),
       fetchCirMetadata(),
     ]);
   } catch {
@@ -26,18 +29,28 @@ export default async function RankingsPage({ searchParams }: RankingsPageProps) 
       <AlertBanner title="Could not load CIR rankings.">
         Return to the{" "}
         <Link href="/" className="underline underline-offset-2 hover:text-accent">
-          home rankings
+          homepage
         </Link>
         .
       </AlertBanner>
     );
   }
   return (
-    <CirRankings
-      players={rankings.players}
-      includeProvisional={includeProvisional}
-      tooltip={metadata?.tooltip ?? ""}
-      toggleHref={{ on: "/rankings?include_provisional=1", off: "/rankings" }}
-    />
+    <div className="space-y-3">
+      <header className="space-y-1">
+        <h1 className="text-lg font-semibold tracking-tight">CIR rankings</h1>
+        <p className="text-sm text-muted-foreground">
+          Filter the current CIR pool by tier, region, and role. Sort by CIR or
+          descriptive scouting metrics without changing published ranks.
+        </p>
+      </header>
+      <CirRankings
+        players={rankings.players}
+        total={rankings.total}
+        includeProvisional={includeProvisional}
+        tooltip={cirMetadata?.tooltip ?? ""}
+        toggleHref={{ on: "/rankings?include_provisional=1", off: "/rankings" }}
+      />
+    </div>
   );
 }

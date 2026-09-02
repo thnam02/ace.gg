@@ -2,17 +2,24 @@ import type { HealthResponse } from "@/lib/types";
 
 type StatusBadgeProps = {
   health: HealthResponse | null;
+  show?: boolean;
 };
 
-export function StatusBadge({ health }: StatusBadgeProps) {
+export function StatusBadge({ health, show }: StatusBadgeProps) {
+  const visible = show ?? process.env.NODE_ENV !== "production";
+  if (!visible) {
+    return null;
+  }
+
   if (health == null) {
     return (
       <p
-        className="inline-flex items-center gap-1.5 rounded-md border border-white/20 bg-muted px-2 py-1 text-xs text-muted-foreground"
+        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
         role="status"
+        aria-label="API unreachable"
       >
         <span className="size-1.5 rounded-full bg-destructive" aria-hidden="true" />
-        API unreachable
+        API
       </p>
     );
   }
@@ -24,14 +31,16 @@ export function StatusBadge({ health }: StatusBadgeProps) {
 
   return (
     <p
-      className="inline-flex items-center gap-1.5 rounded-md border border-white/20 bg-muted px-2 py-1 text-xs text-foreground"
+      className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"
       role="status"
+      aria-label={label}
+      title={label}
     >
       <span
         className={`size-1.5 rounded-full ${healthy ? "bg-accent" : "bg-destructive"}`}
         aria-hidden="true"
       />
-      {label}
+      API
     </p>
   );
 }

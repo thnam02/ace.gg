@@ -64,6 +64,8 @@ export type PlayerStatsAggregate = {
     weighted_adr: number | null;
     weighted_kast: number | null;
     weighted_acs: number | null;
+    clutch_wins?: number | null;
+    clutch_attempts?: number | null;
   };
   derived: MapStatsDerived;
   maps: unknown[];
@@ -87,6 +89,8 @@ export type PlayerDetailResponse = {
 export type CirCompareBlock = {
   cir: number | null;
   rank: number | null;
+  role?: string | null;
+  tier?: string | null;
   reliability: string | null;
   rounds: number;
   maps: number;
@@ -113,12 +117,42 @@ export type PlayerComparison = {
   notes: string;
 };
 
+export type PlayerOption = {
+  id: string;
+  handle: string;
+  real_name: string | null;
+  team: TeamRef | null;
+  role: string | null;
+  tier: string | null;
+  cir: number | null;
+  rounds: number;
+  sample_status: string | null;
+  reliability: string | null;
+};
+
+export type PlayerOptionsResponse = {
+  total: number;
+  limit: number;
+  offset: number;
+  players: PlayerOption[];
+};
+
+export type RoleMix = {
+  role: string;
+  rounds: number;
+  share: number;
+  is_main: boolean;
+};
+
 export type CirRankingPlayer = {
   rank: number;
   player_id: string;
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  roles?: RoleMix[];
+  tier: string | null;
+  region: string | null;
   primary_agent: string | null;
   cir: number | null;
   reliability: string | null;
@@ -144,6 +178,10 @@ export type CirPlayerDetail = {
   handle: string;
   team: TeamRef | null;
   role: string | null;
+  roles?: RoleMix[];
+  tier?: string | null;
+  rank?: number | null;
+  established_count?: number;
   cir: number | null;
   raw_cir: number | null;
   reliability: string | null;
@@ -175,6 +213,10 @@ export type CirMetricMetadata = {
   context: string;
   scale: string;
   established_sample: number;
+  last_data_sync_at?: string | null;
+  latest_match_played_at?: string | null;
+  season?: number | null;
+  circuit?: string | null;
 };
 
 /** Roster/compare view model derived from API summaries. */

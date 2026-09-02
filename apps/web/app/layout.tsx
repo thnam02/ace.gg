@@ -2,8 +2,10 @@ import { Fira_Code, Fira_Sans } from "next/font/google";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { fetchHealth } from "@/lib/api";
+import { BRAND } from "@/lib/brand";
 
 import "./globals.css";
 
@@ -21,10 +23,13 @@ const firaCode = Fira_Code({
 
 export const metadata: Metadata = {
   title: {
-    default: "VALORANT Scout",
-    template: "%s · VALORANT Scout",
+    default: BRAND.name,
+    template: `%s · ${BRAND.name}`,
   },
-  description: "CIR rankings and player scouting for VALORANT.",
+  description: BRAND.description,
+  icons: {
+    icon: BRAND.markSrc,
+  },
 };
 
 export default async function RootLayout({
@@ -47,9 +52,10 @@ export default async function RootLayout({
           Skip to content
         </a>
         <SiteHeader health={health} />
-        <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-3 py-4 sm:px-4">
+        <main id="main" className="mx-auto w-full max-w-[1240px] flex-1 px-3 py-6 sm:px-4 sm:py-8">
           {children}
         </main>
+        <SiteFooter />
       </body>
     </html>
   );

@@ -39,7 +39,7 @@ def fit_standardization(
                 float_values.append(float(value))
         mean = sum(float_values) / len(float_values)
         variance = sum((value - mean) ** 2 for value in float_values) / len(float_values)
-        std = variance ** 0.5
+        std = variance**0.5
         means[name] = mean
         stds[name] = std if std > MIN_STD else 1.0
     return StandardizationParams(means=means, stds=stds)

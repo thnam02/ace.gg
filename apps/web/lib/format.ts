@@ -35,11 +35,41 @@ export function formatWinRate(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+export function formatSyncDate(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function formatCir(value: number | null | undefined): string {
   if (value == null) {
     return "N/A";
   }
-  return String(Math.round(value));
+  if (value >= 99.95) {
+    return "100";
+  }
+  const nearest = Math.round(value);
+  if (nearest !== 100 && Math.abs(value - nearest) < 0.05) {
+    return String(nearest);
+  }
+  return value.toFixed(1);
+}
+
+export function formatCirOrUnavailable(value: number | null | undefined): string {
+  if (value == null) {
+    return "CIR unavailable";
+  }
+  return formatCir(value);
 }
 
 export function formatRate(value: number | null | undefined, digits = 2): string {

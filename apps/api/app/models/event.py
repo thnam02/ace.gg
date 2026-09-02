@@ -20,6 +20,8 @@ class Event(UUIDPrimaryKeyMixin, Base):
     name: Mapped[str] = mapped_column(String(256))
     region: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tier: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    circuit: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
     start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     season_year: Mapped[int | None] = mapped_column(Integer, nullable=True)

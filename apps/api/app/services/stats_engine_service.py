@@ -120,9 +120,7 @@ class StatsEngineService:
                 Match.played_at >= datetime.combine(start_date, time.min, tzinfo=UTC)
             )
         if end_date is not None:
-            query = query.where(
-                Match.played_at <= datetime.combine(end_date, time.max, tzinfo=UTC)
-            )
+            query = query.where(Match.played_at <= datetime.combine(end_date, time.max, tzinfo=UTC))
         if min_rounds is not None:
             query = query.where(PlayerMapStats.rounds >= min_rounds)
 

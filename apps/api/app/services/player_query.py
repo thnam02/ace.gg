@@ -126,27 +126,32 @@ class PlayerQueryService:
         filters: StatsQueryParams,
     ) -> PlayerCompareResponse:
         players: list[Player] = []
+        unknown_ids: list[str] = []
         for ref in player_refs:
-            player = self._require_player(ref)
-            players.append(player)
+            try:
+                players.append(self._require_player(ref))
+            except PlayerNotFoundError:
+                unknown_ids.append(ref)
 
-        all_rows = self._stats_service.load_player_map_stats(
-            None,
-            event_id=filters.event_id,
-            vlr_event_id=filters.vlr_event_id,
-            start_date=filters.start_date,
-            end_date=filters.end_date,
-            min_rounds=filters.min_rounds,
-            player_ids=[player.id for player in players],
-        )
-        rows_by_player = _group_rows_by_player(all_rows)
+        rows_by_player: dict[UUID, list[PlayerMapStats]] = {}
+        if players:
+            all_rows = self._stats_service.load_player_map_stats(
+                None,
+                event_id=filters.event_id,
+                vlr_event_id=filters.vlr_event_id,
+                start_date=filters.start_date,
+                end_date=filters.end_date,
+                min_rounds=filters.min_rounds,
+                player_ids=[player.id for player in players],
+            )
+            rows_by_player = _group_rows_by_player(all_rows)
 
         entries: list[PlayerCompareEntry] = []
-        missing: list[str] = []
+        sparse: list[str] = []
         for player in players:
             rows = rows_by_player.get(player.id, [])
             if not rows:
-                missing.append(player.handle)
+                sparse.append(player.handle)
             aggregate = self._aggregate_rows(rows)
             entries.append(
                 PlayerCompareEntry(
@@ -157,8 +162,10 @@ class PlayerQueryService:
             )
 
         notes = "Side-by-side stats from ingested map data."
-        if missing:
-            notes = f"{notes} Sparse sample: {', '.join(missing)}."
+        if sparse:
+            notes = f"{notes} Sparse sample: {', '.join(sparse)}."
+        if unknown_ids:
+            notes = f"{notes} Unknown player IDs: {', '.join(unknown_ids)}."
         return PlayerCompareResponse(players=entries, notes=notes)
 
     def _players_with_stats(self) -> list[Player]:

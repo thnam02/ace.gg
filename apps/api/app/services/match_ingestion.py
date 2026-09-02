@@ -56,6 +56,10 @@ class MatchIngestionService:
             event.region = data.region
         if data.tier is not None:
             event.tier = data.tier
+        if data.circuit is not None:
+            event.circuit = data.circuit
+        if data.stage is not None:
+            event.stage = data.stage
         if data.start_date is not None:
             event.start_date = data.start_date
         if data.end_date is not None:

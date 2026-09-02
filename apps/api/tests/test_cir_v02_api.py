@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.metrics.cir.config import CIR_NAME, CIR_V02_VERSION, MetricVersionStatus, SampleStatus
-from app.models import MetricVersion, Player, PlayerMetricSnapshot
+from app.models import MetricVersion, Player, PlayerMetricSnapshot, PlayerTeamHistory
 from tests.test_player_api import _seed_compare_graph
 
 
@@ -115,6 +116,24 @@ def test_rankings_default_to_established(client: TestClient, db_session: Session
     assert payload["players"][0]["rank"] == 1
     assert payload["players"][0]["cir"] == 92.0
     assert payload["players"][0]["sample_status"] == "ESTABLISHED"
+    assert payload["players"][0]["tier"] == "T1"
+    assert payload["players"][0]["role"] == "Duelist"
+    assert payload["players"][0]["region"] == "Americas"
+    assert payload["players"][0]["team"]["name"] == "Sentinels"
+    assert payload["players"][0]["team"]["tag"] == "SEN"
+    assert payload["players"][0]["roles"][0]["role"] == "Duelist"
+    assert payload["players"][0]["roles"][0]["is_main"] is True
+
+
+def test_rankings_include_team_when_history_is_not_current(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_production_snapshots(db_session)
+    for row in db_session.scalars(select(PlayerTeamHistory)).all():
+        row.is_current = False
+    db_session.flush()
+    payload = client.get("/rankings/cir").json()
+    assert payload["players"][0]["team"]["name"] == "Sentinels"
 
 
 def test_rankings_include_provisional_and_pagination(
@@ -131,6 +150,8 @@ def test_rankings_include_provisional_and_pagination(
     ).json()
     assert page_two["players"][0]["handle"] == "zekken"
     assert page_two["players"][0]["rank"] == 2
+    assert client.get("/rankings/cir", params={"limit": 2000}).status_code == 200
+    assert client.get("/rankings/cir", params={"limit": 2001}).status_code == 422
 
 
 def test_rankings_are_deterministic(client: TestClient, db_session: Session) -> None:
@@ -161,6 +182,11 @@ def test_rankings_are_deterministic(client: TestClient, db_session: Session) -> 
     payload = client.get("/rankings/cir").json()
     handles = [row["handle"] for row in payload["players"]]
     assert handles == ["aaa", "TenZ"]
+    aaa_cir = client.get(f"/players/{extra.id}/cir").json()
+    tenz_cir = client.get(f"/players/{graph['player'].id}/cir").json()
+    assert aaa_cir["rank"] == 1
+    assert tenz_cir["rank"] == 2
+    assert aaa_cir["established_count"] == tenz_cir["established_count"] == payload["total"]
 
 
 def test_player_cir_and_metadata_endpoints(client: TestClient, db_session: Session) -> None:
@@ -172,12 +198,30 @@ def test_player_cir_and_metadata_endpoints(client: TestClient, db_session: Sessi
     assert body["cir"] == 92.0
     assert body["kpr"] == 0.84
     assert body["expected_kpr"] == 0.77
+    assert body["rank"] == 1
+    assert body["established_count"] == 1
+    assert body["tier"] == "T1"
+    assert body["role"] == "Duelist"
     assert "z_kpr" not in body
+    rankings = client.get("/rankings/cir").json()
+    assert rankings["players"][0]["rank"] == body["rank"]
+    assert rankings["total"] == body["established_count"]
     meta = client.get("/metrics/cir")
     assert meta.status_code == 200
     assert meta.json()["version"] == CIR_V02_VERSION
     assert "90th percentile" in meta.json()["tooltip"]
     assert "true player value" not in meta.json()["description"].lower()
+
+
+def test_provisional_player_cir_has_no_established_rank(
+    client: TestClient, db_session: Session
+) -> None:
+    graph = _seed_production_snapshots(db_session)
+    teammate = graph["teammate"]
+    body = client.get(f"/players/{teammate.id}/cir").json()
+    assert body["rank"] is None
+    assert body["established_count"] == 1
+    assert body["sample_status"] == "PROVISIONAL"
 
 
 def test_compare_includes_cir_inputs(client: TestClient, db_session: Session) -> None:
@@ -197,3 +241,52 @@ def test_compare_includes_cir_inputs(client: TestClient, db_session: Session) ->
     )
     assert dedicated.status_code == 200
     assert len(dedicated.json()["players"]) == 2
+    assert tenz["cir"]["role"] == "Duelist"
+    assert tenz["cir"]["tier"] == "T1"
+
+
+def test_player_options_include_all_sample_statuses_and_non_top_cir(
+    client: TestClient, db_session: Session
+) -> None:
+    graph = _seed_production_snapshots(db_session)
+    version = graph["metric_version"]
+    extra = Player(vlr_player_id=77, handle="Boaster", real_name="Jake")
+    db_session.add(extra)
+    db_session.flush()
+    db_session.add(
+        PlayerMetricSnapshot(
+            player_id=extra.id,
+            metric_version_id=version.id,
+            cir=22.5,
+            raw_cir=-0.4,
+            shrunk_raw_cir=-0.3,
+            combat_component=-0.4,
+            rounds=72,
+            maps_played=4,
+            sample_status=SampleStatus.LOW_SAMPLE.value,
+            reliability="LOW",
+            details={"role": "Controller", "tier": "T1"},
+        )
+    )
+    db_session.flush()
+
+    rankings = client.get("/rankings/cir").json()
+    assert rankings["total"] == 1
+
+    payload = client.get("/players/options", params={"limit": 50}).json()
+    handles = {row["handle"] for row in payload["players"]}
+    assert handles == {"Boaster", "TenZ", "zekken"}
+    by_handle = {row["handle"]: row for row in payload["players"]}
+    assert by_handle["Boaster"]["cir"] == 22.5
+    assert by_handle["Boaster"]["sample_status"] == "LOW_SAMPLE"
+    assert by_handle["zekken"]["cir"] == 40.0
+    assert by_handle["zekken"]["sample_status"] == "PROVISIONAL"
+    assert by_handle["TenZ"]["cir"] == 92.0
+    assert payload["players"][0]["handle"] == "Boaster"
+
+    search = client.get("/players/options", params={"search": "Boaster"}).json()
+    assert [row["handle"] for row in search["players"]] == ["Boaster"]
+    role_search = client.get("/players/options", params={"search": "Controller"}).json()
+    assert [row["handle"] for row in role_search["players"]] == ["Boaster"]
+    missing = client.get("/players/compare", params={"player_ids": ["missing-id"] * 2})
+    assert missing.status_code == 200

@@ -41,7 +41,13 @@ class EventIngestionService:
     def ingest(self, event_id: int) -> EventIngestionSummary:
         return self.ingest_event(event_id)
 
-    def ingest_event(self, event_id: int) -> EventIngestionSummary:
+    def ingest_event(
+        self,
+        event_id: int,
+        *,
+        skip_matches: bool = False,
+        completed_matches_only: bool = False,
+    ) -> EventIngestionSummary:
         stats_before = self._player_map_stats_count()
         maps_before = self._match_maps_count()
         errors: list[str] = []
@@ -51,11 +57,20 @@ class EventIngestionService:
 
         page_data = self._source.load_event_page(event_id)
         discovered_ids = list(page_data.match_ids)
+        ingest_ids = discovered_ids
+        if skip_matches:
+            ingest_ids = []
+        elif completed_matches_only:
+            completed_fn = getattr(self._source, "completed_match_ids", None)
+            if callable(completed_fn):
+                completed_ids = set(completed_fn())
+                ingest_ids = [match_id for match_id in discovered_ids if match_id in completed_ids]
+                matches_skipped += len(discovered_ids) - len(ingest_ids)
 
         if not self._dry_run:
             self._persist_event_context(page_data)
 
-        for match_id in discovered_ids:
+        for match_id in ingest_ids:
             outcome, message = self._ingest_match(match_id, event_id)
             if outcome == "ingested":
                 matches_ingested += 1

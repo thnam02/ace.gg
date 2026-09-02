@@ -5,6 +5,13 @@ from pydantic import BaseModel, Field
 from app.schemas.player_api import TeamRef
 
 
+class RoleMix(BaseModel):
+    role: str
+    rounds: int = 0
+    share: float = 0.0
+    is_main: bool = False
+
+
 class CirReliability(BaseModel):
     label: str
     pct: float | None = None
@@ -16,6 +23,9 @@ class CirRankingPlayer(BaseModel):
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    roles: list[RoleMix] = Field(default_factory=list)
+    tier: str | None = None
+    region: str | None = None
     primary_agent: str | None = None
     cir: float | None = None
     reliability: str | None = None
@@ -39,11 +49,35 @@ class CirRankingResponse(BaseModel):
     players: list[CirRankingPlayer] = Field(default_factory=list)
 
 
+class PlayerOption(BaseModel):
+    id: str
+    handle: str
+    real_name: str | None = None
+    team: TeamRef | None = None
+    role: str | None = None
+    tier: str | None = None
+    cir: float | None = None
+    rounds: int = 0
+    sample_status: str | None = None
+    reliability: str | None = None
+
+
+class PlayerOptionsResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    players: list[PlayerOption] = Field(default_factory=list)
+
+
 class CirPlayerDetail(BaseModel):
     player_id: str
     handle: str
     team: TeamRef | None = None
     role: str | None = None
+    roles: list[RoleMix] = Field(default_factory=list)
+    tier: str | None = None
+    rank: int | None = None
+    established_count: int = 0
     cir: float | None = None
     raw_cir: float | None = None
     shrunk_raw_cir: float | None = None
@@ -110,3 +144,7 @@ class CirMetricMetadata(BaseModel):
     shrinkage_k: float
     reference_period_start: str | None = None
     reference_period_end: str | None = None
+    last_data_sync_at: str | None = None
+    latest_match_played_at: str | None = None
+    season: int | None = None
+    circuit: str | None = None

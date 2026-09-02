@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     data_provider: str = "mock"
     vlrggapi_base_url: str = "http://127.0.0.1:3001"
+    vlr_circuit_url: str = "https://www.vlr.gg/vct"
+    vct_sync_season_year: int = 2026
+    vct_sync_cron: str = "0 3 * * *"
     vlr_default_players: str = "tenz,aspas,something"
     vlr_stats_region: str = "americas"
     vlr_stats_timespan: str = "90"

@@ -79,6 +79,8 @@ class CirV02TrainingService:
         require_complete_maps: bool = True,
         bootstrap_iterations: int = 0,
         persist_version: str = CIR_V02_VERSION,
+        allow_production: bool = True,
+        events_used: list[int] | None = None,
     ) -> None:
         self._session = session
         self._stats_service = stats_service or StatsEngineService(session)
@@ -86,6 +88,8 @@ class CirV02TrainingService:
         self._require_complete_maps = require_complete_maps
         self._bootstrap_iterations = bootstrap_iterations
         self._persist_version = persist_version
+        self._allow_production = allow_production
+        self._events_used = list(events_used or SCALE_EVENT_IDS)
         self._snapshot_service = CirSnapshotService(
             session,
             stats_service=self._stats_service,
@@ -120,7 +124,7 @@ class CirV02TrainingService:
             shrinkage_k=SHRINKAGE_K,
             require_complete_maps=self._require_complete_maps,
             persist_version=self._persist_version,
-            events_used=list(SCALE_EVENT_IDS),
+            events_used=self._events_used,
             context_mode=CONTEXT_MODE_V2,
             context_spec=spec,
             persist=False,
@@ -206,11 +210,10 @@ class CirV02TrainingService:
             team_map_count=len(bundle.team_maps),
         )
         gates_passed = not sanity and not regression
-        status = (
-            MetricVersionStatus.PRODUCTION.value
-            if gates_passed
-            else MetricVersionStatus.VALIDATED.value
-        )
+        if gates_passed and self._allow_production:
+            status = MetricVersionStatus.PRODUCTION.value
+        else:
+            status = MetricVersionStatus.VALIDATED.value
 
         completeness = summarize_map_completeness(self._session)
         training_start = _min_date(train_stats)
@@ -237,11 +240,11 @@ class CirV02TrainingService:
                     "maps_empty": completeness.maps_empty,
                     "train_maps": len(train_ids),
                     "player_snapshots": len(players),
-                    "events_used": list(SCALE_EVENT_IDS),
+                    "events_used": list(self._events_used),
                 },
             )
             self._snapshot_service.upsert_snapshots(metric_version=metric_version, players=players)
-            if gates_passed:
+            if gates_passed and self._allow_production:
                 metric_version.status = MetricVersionStatus.PRODUCTION.value
                 self._session.flush()
             metric_version_id = str(metric_version.id)
@@ -357,7 +360,7 @@ class CirV02TrainingService:
                 "tau": TAU,
                 "context_type": "context_v2",
                 "context_dimensions": list(CONTEXT_DIMENSIONS),
-                "events_used": list(SCALE_EVENT_IDS),
+                "events_used": list(self._events_used),
                 "eligible_map_definition": ELIGIBLE_MAP_DEFINITION,
                 "context_registry": registry_payload,
                 "context_expectations": context_rows,

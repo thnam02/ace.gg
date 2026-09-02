@@ -92,6 +92,8 @@ class PlayerMapsResponse(BaseModel):
 
 class PlayerCompareCir(BaseModel):
     cir: float | None = None
+    role: str | None = None
+    tier: str | None = None
     rank: int | None = None
     reliability: str | None = None
     rounds: int = 0

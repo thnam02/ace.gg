@@ -268,4 +268,3 @@ def _exclude_unknown_agent_maps(stats: list[PlayerMapStats]) -> list[PlayerMapSt
     if not unknown_map_ids:
         return stats
     return [row for row in stats if row.match_map_id not in unknown_map_ids]
-

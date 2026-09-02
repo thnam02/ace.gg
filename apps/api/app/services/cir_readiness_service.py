@@ -62,9 +62,7 @@ class CirReadinessService:
         if len(maps) < 5:
             partial.append(f"only {len(maps)} maps observed")
         if missing_adr_pct > 15 or missing_kast_pct > 15:
-            partial.append(
-                f"missing ADR {missing_adr_pct:.1f}% / KAST {missing_kast_pct:.1f}%"
-            )
+            partial.append(f"missing ADR {missing_adr_pct:.1f}% / KAST {missing_kast_pct:.1f}%")
         if missing_clutch_pct > 50:
             partial.append(
                 f"clutch unavailable on {missing_clutch_pct:.1f}% of rows; "

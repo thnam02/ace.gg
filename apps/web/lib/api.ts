@@ -5,6 +5,7 @@ import type {
   HealthResponse,
   PlayerComparison,
   PlayerDetailResponse,
+  PlayerOptionsResponse,
   PlayerProfile,
   PlayerSummary,
 } from "@/lib/types";
@@ -98,6 +99,34 @@ export async function fetchComparison(ids: string[]): Promise<PlayerComparison> 
   return apiFetch<PlayerComparison>(`/players/compare?${params.toString()}`);
 }
 
+export async function fetchPlayerOptions(options?: {
+  search?: string;
+  team?: string;
+  role?: string;
+  tier?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<PlayerOptionsResponse> {
+  const params = new URLSearchParams();
+  if (options?.search) {
+    params.set("search", options.search);
+  }
+  if (options?.team) {
+    params.set("team", options.team);
+  }
+  if (options?.role) {
+    params.set("role", options.role);
+  }
+  if (options?.tier) {
+    params.set("tier", options.tier);
+  }
+  params.set("limit", String(options?.limit ?? 20));
+  params.set("offset", String(options?.offset ?? 0));
+  return apiFetch<PlayerOptionsResponse>(`/players/options?${params.toString()}`);
+}
+
+export const CIR_RANKING_FETCH_LIMIT = 2000;
+
 export async function fetchCirRankings(options?: {
   includeProvisional?: boolean;
   limit?: number;
@@ -107,7 +136,7 @@ export async function fetchCirRankings(options?: {
   if (options?.includeProvisional) {
     params.set("include_provisional", "true");
   }
-  params.set("limit", String(options?.limit ?? 50));
+  params.set("limit", String(options?.limit ?? CIR_RANKING_FETCH_LIMIT));
   params.set("offset", String(options?.offset ?? 0));
   const query = params.toString();
   return apiFetch<CirRankingResponse>(`/rankings/cir?${query}`);
