@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.match_map import MatchMap
     from app.models.player_map_stats import PlayerMapStats
     from app.models.player_team_history import PlayerTeamHistory
+    from app.models.team_rating_snapshot import TeamRatingSnapshot
 
 
 class Team(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -51,4 +52,14 @@ class Team(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     map_stats: Mapped[list[PlayerMapStats]] = relationship(
         "PlayerMapStats",
         back_populates="team",
+    )
+    rating_snapshots: Mapped[list[TeamRatingSnapshot]] = relationship(
+        "TeamRatingSnapshot",
+        back_populates="team",
+        foreign_keys="TeamRatingSnapshot.team_id",
+    )
+    opponent_rating_snapshots: Mapped[list[TeamRatingSnapshot]] = relationship(
+        "TeamRatingSnapshot",
+        back_populates="opponent_team",
+        foreign_keys="TeamRatingSnapshot.opponent_team_id",
     )

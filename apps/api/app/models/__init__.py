@@ -6,6 +6,7 @@ from app.models.player import Player
 from app.models.player_map_stats import PlayerMapStats
 from app.models.player_team_history import PlayerTeamHistory
 from app.models.team import Team
+from app.models.team_rating_snapshot import TeamRatingSnapshot
 
 __all__ = [
     "Agent",
@@ -16,4 +17,5 @@ __all__ = [
     "PlayerMapStats",
     "PlayerTeamHistory",
     "Team",
+    "TeamRatingSnapshot",
 ]

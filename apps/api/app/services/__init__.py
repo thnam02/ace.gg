@@ -6,6 +6,7 @@ from app.services.player_comparison import PlayerComparisonService
 from app.services.player_query import PlayerQueryService
 from app.services.player_stats import PlayerStatsService
 from app.services.stats_engine_service import StatsEngineService
+from app.services.team_rating_service import TeamRatingService
 
 __all__ = [
     "ContextBaselineService",
@@ -16,4 +17,5 @@ __all__ = [
     "PlayerQueryService",
     "PlayerStatsService",
     "StatsEngineService",
+    "TeamRatingService",
 ]
