@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     cors_origin_regex: str = r"https://.*\.vercel\.app"
     docs_enabled: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_per_minute: int = 600
+    rate_limit_compare_per_minute: int = 60
     data_provider: str = "mock"
     vlrggapi_base_url: str = "http://127.0.0.1:3001"
     vlr_circuit_url: str = "https://www.vlr.gg/vct"

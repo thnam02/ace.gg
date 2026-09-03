@@ -43,6 +43,7 @@ Edit `.env`:
 | `CORS_ORIGINS` | Public website origin (the Next.js host) |
 | `POSTGRES_PASSWORD` | Strong password, also used inside `DATABASE_URL` |
 | `DOCS_ENABLED` | Keep `false` on a public API |
+| `RATE_LIMIT_PER_MINUTE` | Max API requests per IP per minute (compare uses the lower compare cap) |
 
 `NEXT_PUBLIC_API_URL` is baked into the web image at **build** time. If you change it, rebuild web:
 

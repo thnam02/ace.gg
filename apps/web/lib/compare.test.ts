@@ -42,6 +42,9 @@ describe("compare selection", () => {
     expect(compareRequestErrorMessage(new ApiError(422, "bad"))).toBe(
       "The comparison request failed. Check the selected IDs and try again.",
     );
+    expect(compareRequestErrorMessage(new ApiError(429, "slow down"))).toBe(
+      "Too many comparison requests. Wait a moment and try again.",
+    );
     expect(compareRequestErrorMessage(new Error("Failed to fetch"))).toBe(
       "Could not load this comparison. Check the connection and try again.",
     );

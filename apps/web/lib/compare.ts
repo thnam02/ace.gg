@@ -66,6 +66,9 @@ export function removeCompareId(ids: string[], id: string): string[] {
 }
 
 export function compareRequestErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 429) {
+    return "Too many comparison requests. Wait a moment and try again.";
+  }
   if (error instanceof ApiError && (error.status === 404 || error.status === 422)) {
     return "The comparison request failed. Check the selected IDs and try again.";
   }

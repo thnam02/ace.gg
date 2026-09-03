@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { resolveApiOrigin } from "@/lib/api-origin";
+import { checkScoutApiRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -15,9 +16,13 @@ async function proxy(request: NextRequest, path: string[]): Promise<NextResponse
   }
 
   try {
+    const forwarded = request.headers.get("x-forwarded-for");
     const response = await fetch(upstreamUrl(request, path), {
       cache: "no-store",
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        ...(forwarded ? { "x-forwarded-for": forwarded } : {}),
+      },
     });
     const body = await response.arrayBuffer();
     return new NextResponse(body, {
@@ -36,5 +41,15 @@ export async function GET(
   context: { params: Promise<{ path: string[] }> },
 ): Promise<NextResponse> {
   const { path } = await context.params;
+  const limited = checkScoutApiRateLimit(request.headers, path);
+  if (!limited.allowed) {
+    return NextResponse.json(
+      { detail: "Rate limit exceeded" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limited.retryAfterSec) },
+      },
+    );
+  }
   return proxy(request, path);
 }
