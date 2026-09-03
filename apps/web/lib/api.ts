@@ -3,6 +3,7 @@ import type {
   CirMetricMetadata,
   CirPlayerDetail,
   CirRankingResponse,
+  EventListResponse,
   HealthResponse,
   PlayerComparison,
   PlayerDetailResponse,
@@ -141,6 +142,48 @@ export async function fetchCirRankings(options?: {
   params.set("offset", String(options?.offset ?? 0));
   const query = params.toString();
   return apiFetch<CirRankingResponse>(`/rankings/cir?${query}`);
+}
+
+export async function fetchEventCirRankings(options: {
+  vlrEventId: number;
+  includeProvisional?: boolean;
+  includeLowSample?: boolean;
+  limit?: number;
+  offset?: number;
+}): Promise<CirRankingResponse> {
+  const params = new URLSearchParams();
+  if (options.includeProvisional !== false) {
+    params.set("include_provisional", "true");
+  }
+  if (options.includeLowSample !== false) {
+    params.set("include_low_sample", "true");
+  }
+  params.set("limit", String(options.limit ?? CIR_RANKING_FETCH_LIMIT));
+  params.set("offset", String(options.offset ?? 0));
+  return apiFetch<CirRankingResponse>(
+    `/rankings/cir/by-event/${options.vlrEventId}?${params.toString()}`,
+  );
+}
+
+export async function fetchEvents(options?: {
+  region?: string | null;
+  circuit?: string | null;
+  seasonYear?: number | null;
+  limit?: number;
+}): Promise<EventListResponse> {
+  const params = new URLSearchParams();
+  if (options?.region) {
+    params.set("region", options.region);
+  }
+  if (options?.circuit) {
+    params.set("circuit", options.circuit);
+  }
+  if (options?.seasonYear != null) {
+    params.set("season_year", String(options.seasonYear));
+  }
+  params.set("limit", String(options?.limit ?? 200));
+  const query = params.toString();
+  return apiFetch<EventListResponse>(`/events?${query}`);
 }
 
 export async function fetchPlayerCir(playerId: string): Promise<CirPlayerDetail | null> {

@@ -171,6 +171,32 @@ export type CirRankingResponse = {
   limit: number;
   offset: number;
   players: CirRankingPlayer[];
+  scope?: "season" | "event";
+  event_id?: string | null;
+  vlr_event_id?: number | null;
+  event_name?: string | null;
+  event_region?: string | null;
+  note?: string | null;
+};
+
+export type EventSummary = {
+  id: string;
+  vlr_event_id: number;
+  name: string;
+  region: string | null;
+  canonical_region: string | null;
+  tier: string | null;
+  circuit: string | null;
+  stage: string | null;
+  status: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  season_year: number | null;
+};
+
+export type EventListResponse = {
+  total: number;
+  events: EventSummary[];
 };
 
 export type CirPlayerDetail = {

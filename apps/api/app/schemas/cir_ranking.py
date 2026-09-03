@@ -47,6 +47,12 @@ class CirRankingResponse(BaseModel):
     limit: int
     offset: int
     players: list[CirRankingPlayer] = Field(default_factory=list)
+    scope: str = "season"
+    event_id: str | None = None
+    vlr_event_id: int | None = None
+    event_name: str | None = None
+    event_region: str | None = None
+    note: str | None = None
 
 
 class PlayerOption(BaseModel):

@@ -174,9 +174,15 @@ export function CirRankings({
   if (players.length === 0) {
     return (
       <div className="glass-panel rounded-xl p-4">
-        <p className="text-sm text-foreground">No established CIR rankings yet.</p>
+        <p className="text-sm text-foreground">
+          {title.toLowerCase().includes("event")
+            ? "No event CIR scores for this selection."
+            : "No established CIR rankings yet."}
+        </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Train CIR v0.2 and generate snapshots, or include provisional players.
+          {title.toLowerCase().includes("event")
+            ? "This event may lack complete maps, or all players are below the sample filter."
+            : "Train CIR v0.2 and generate snapshots, or include provisional players."}
         </p>
       </div>
     );

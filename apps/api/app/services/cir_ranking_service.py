@@ -44,9 +44,14 @@ from app.schemas.cir_ranking import (
 )
 from app.schemas.player_api import PlayerCompareCir, TeamRef
 from app.schemas.vct_circuit import CircuitName
-from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
+from app.services.cir_snapshot_service import CirSnapshotService, load_frozen_cir_v02, production_metric_version
 from app.services.player_query import PlayerNotFoundError, PlayerQueryService
 from app.services.vct_sync_service import latest_match_played_at, latest_sync_run
+
+_EVENT_CIR_NOTE = (
+    "Event CIR scored with frozen v0.2 weights against the season reference. "
+    "Not published season CIR."
+)
 
 
 class CirRankingService:
@@ -155,6 +160,95 @@ class CirRankingService:
             limit=limit,
             offset=offset,
             players=players,
+            scope="season",
+        )
+
+    def list_event_rankings(
+        self,
+        *,
+        vlr_event_id: int,
+        role: str | None = None,
+        tier: str | None = None,
+        include_provisional: bool = True,
+        include_low_sample: bool = True,
+        sample_status: str | None = None,
+        metric_version: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> CirRankingResponse:
+        event = self._session.scalar(select(Event).where(Event.vlr_event_id == vlr_event_id))
+        if event is None:
+            raise ValueError(f"Event {vlr_event_id} not found")
+
+        frozen = load_frozen_cir_v02(
+            self._session,
+            version=metric_version or CIR_V02_VERSION,
+        )
+        if frozen is None:
+            raise ValueError("No frozen CIR MetricVersion is available")
+
+        scores = CirSnapshotService(
+            self._session,
+            require_complete_maps=True,
+        ).score_players_for_event(
+            frozen,
+            event_id=event.id,
+            vlr_event_id=vlr_event_id,
+        )
+        statuses = set(
+            _allowed_statuses(
+                include_provisional=include_provisional,
+                include_low_sample=include_low_sample,
+                sample_status=sample_status,
+            )
+        )
+        role_needle = role.lower() if role else None
+        tier_needle = tier.lower() if tier else None
+        filtered = [
+            score
+            for score in scores
+            if score.sample_status in statuses
+            and (role_needle is None or (score.role or "").lower() == role_needle)
+            and (tier_needle is None or (score.tier or "").lower() == tier_needle)
+        ]
+        filtered.sort(
+            key=lambda item: (
+                -(item.cir or 0.0),
+                -item.rounds,
+                item.handle.lower(),
+            )
+        )
+        total = len(filtered)
+        page = filtered[offset : offset + limit]
+        players_by_id = self._players_by_ids([score.player_id for score in page])
+        role_counts = self._role_counts_lookup([score.player_id for score in page])
+        event_region = event_ranking_region(region=event.region, name=event.name)
+        version = frozen.metric_version
+        players = [
+            _to_event_ranking_player(
+                rank=offset + index + 1,
+                score=score,
+                player=players_by_id.get(score.player_id),
+                version=version,
+                event_region=event_region,
+                role_counts=role_counts.get(score.player_id, {}),
+            )
+            for index, score in enumerate(page)
+        ]
+        return CirRankingResponse(
+            metric_name=version.name,
+            metric_version=version.version,
+            metric_version_id=str(version.id),
+            total=total,
+            limit=limit,
+            offset=offset,
+            players=players,
+            scope="event",
+            event_id=str(event.id),
+            vlr_event_id=event.vlr_event_id,
+            event_name=event.name,
+            event_region=event_region,
+            note=_EVENT_CIR_NOTE,
         )
 
     def player_cir(self, player_ref: str, *, metric_version: str | None = None) -> CirPlayerDetail:
@@ -431,6 +525,16 @@ class CirRankingService:
             counts.setdefault(player_id, {})[str(role)] = int(rounds or 0)
         return counts
 
+    def _players_by_ids(self, player_ids: list[UUID]) -> dict[UUID, Player]:
+        if not player_ids:
+            return {}
+        rows = self._session.scalars(
+            select(Player)
+            .where(Player.id.in_(player_ids))
+            .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
+        ).all()
+        return {player.id: player for player in rows}
+
     def _rank_lookup(self, metric_version_id: UUID) -> dict[UUID, int]:
         rows = list(
             self._session.execute(
@@ -541,6 +645,43 @@ def _to_ranking_player(
         kpr=_detail_float(details, "kpr"),
         dpr=_detail_float(details, "dpr"),
         sample_status=snapshot.sample_status,
+        metric_version=version.version,
+        metric_version_id=str(version.id),
+    )
+
+
+def _to_event_ranking_player(
+    *,
+    rank: int,
+    score,
+    player: Player | None,
+    version: MetricVersion,
+    event_region: str | None,
+    role_counts: dict[str, int],
+) -> CirRankingPlayer:
+    team_ref = _team_ref(player, None) if player is not None else None
+    region = pick_ranking_region(
+        team_region=team_ref.region if team_ref is not None else None,
+        event_regions=[event_region],
+    )
+    return CirRankingPlayer(
+        rank=rank,
+        player_id=str(score.player_id),
+        handle=player.handle if player is not None else score.handle,
+        team=team_ref,
+        role=score.role,
+        roles=build_role_mix(role_counts, score.role),
+        tier=score.tier,
+        region=region,
+        primary_agent=score.primary_agent,
+        cir=score.cir,
+        reliability=score.reliability,
+        reliability_pct=score.reliability_pct,
+        rounds=score.rounds,
+        maps=score.maps,
+        kpr=score.kpr,
+        dpr=score.dpr,
+        sample_status=score.sample_status,
         metric_version=version.version,
         metric_version_id=str(version.id),
     )

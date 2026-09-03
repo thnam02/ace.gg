@@ -49,3 +49,32 @@ def list_cir_rankings(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/cir/by-event/{vlr_event_id}", response_model=CirRankingResponse)
+def list_cir_rankings_by_event(
+    vlr_event_id: int,
+    role: str | None = Query(None),
+    tier: str | None = Query(None),
+    include_provisional: bool = Query(True),
+    include_low_sample: bool = Query(True),
+    sample_status: str | None = Query(None),
+    metric_version: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=2000),
+    offset: int = Query(0, ge=0),
+    service: CirRankingService = Depends(get_ranking_service),
+) -> CirRankingResponse:
+    try:
+        return service.list_event_rankings(
+            vlr_event_id=vlr_event_id,
+            role=role,
+            tier=tier,
+            include_provisional=include_provisional,
+            include_low_sample=include_low_sample,
+            sample_status=sample_status,
+            metric_version=metric_version,
+            limit=limit,
+            offset=offset,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
