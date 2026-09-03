@@ -1,38 +1,31 @@
-# VALORANT Scout
+# ACE.gg
 
-Player stats and comparison console: FastAPI backend plus a dense Next.js dashboard.
+VALORANT player analytics: CIR rankings, player dossiers, and side-by-side compare.
+
+Public site is **ACE.gg**. CIR **v0.2-real-2026** is frozen **PRODUCTION**. Do not retrain CIR. Do not replace a live database with an empty Alembic schema.
 
 ## Stack
 
-- Backend: FastAPI, Python, PostgreSQL
-- Frontend: Next.js, Tailwind CSS
-- Local orchestration: Docker Compose
+- API: FastAPI, PostgreSQL (CIR snapshots and map stats)
+- Web: Next.js on Vercel
+- Local / VPS: Docker Compose
 
-## Project layout
+## Layout
 
 ```text
 apps/
-  api/                 FastAPI service
-    app/
-      api/             HTTP routes
-      models/          SQLAlchemy models
-      schemas/         Pydantic schemas
-      services/        Player stats, comparison, and match ingestion
-      providers/       Data sources
-      parsers/         VLR match HTML parsing
-      metrics/         Custom metric engine placeholder
-  web/                 Next.js dashboard
+  api/     FastAPI — rankings, players, compare
+  web/     Next.js — homepage, /rankings, /compare, /players/[id]
+deploy/    Dump/restore scripts and production env example
 ```
 
-## Quick start
-
-Copy environment defaults:
+## Local
 
 ```bash
 cp .env.example .env
 ```
 
-### Backend
+Postgres must already contain the CIR dump. Rankings will be empty if you only run `alembic upgrade head`.
 
 ```bash
 cd apps/api
@@ -42,32 +35,22 @@ pip install -r requirements-dev.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-Health check: [http://localhost:8000/health](http://localhost:8000/health)
-
-Without PostgreSQL running, the API still serves mock players and `/health` reports `database: disconnected`.
-
-### Frontend
-
-With the API running:
-
 ```bash
 cd apps/web
+cp .env.example .env.local   # API_URL and NEXT_PUBLIC_API_URL → http://localhost:8000
 npm install
 npm run dev
 ```
 
-Dashboard: [http://localhost:3000](http://localhost:3000)
+- Web: http://localhost:3000
+- API: http://localhost:8000
+- Docs: http://localhost:8000/docs (keep `DOCS_ENABLED=false` in production)
 
-### Database migrations
-
-From `apps/api`, with `DATABASE_URL` pointing at PostgreSQL:
+In the browser, search and compare go to `/scout-api/*` on the Next app, which proxies to the API. Server-rendered pages call the API origin directly.
 
 ```bash
-alembic upgrade head
-alembic downgrade -1
-alembic current
+cd apps/web && npm test && npm run typecheck
+cd apps/api && python3 -m pytest
 ```
 
 ## Docker Compose
@@ -76,21 +59,8 @@ alembic current
 docker compose up --build
 ```
 
-- Web: [http://localhost:3000](http://localhost:3000)
-- API: [http://localhost:8000](http://localhost:8000)
-- Postgres: `127.0.0.1:5432`
+Postgres is bound to `127.0.0.1` only. Daily VCT ingest is opt-in (`--profile sync`) and needs a reachable VLRGGAPI — leave it off until that exists.
 
-Daily VCT sync is opt-in:
+## Production
 
-```bash
-docker compose --profile sync up -d vct-sync
-```
-
-## First production deploy
-
-Do not start from an empty database and do not retrain CIR.
-
-1. Dump the current laptop database: `./deploy/dump-postgres.sh`
-2. Copy `deploy/env.production.example` to `.env` on the server and replace `CHANGE_ME`
-3. Restore the dump, then start API + web — see [deploy/README.md](deploy/README.md)
-
+Live shape is **Vercel (web) + Railway (API + Postgres)**. How to dump, restore, set env, and smoke-check: [deploy/README.md](deploy/README.md).
