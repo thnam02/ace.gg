@@ -18,6 +18,7 @@ import {
   compareOptionFromCir,
   compareOptionFromDetail,
   compareOptionFromEntry,
+  compareRequestErrorMessage,
   mergeCompareOptions,
   parseCompareIds,
   pendingCompareOption,
@@ -87,9 +88,9 @@ export function CompareWorkspace({ initialIds }: CompareWorkspaceProps) {
           mergeCompareOptions(current, payload.players.map(compareOptionFromEntry)),
         );
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
-          setError("The comparison request failed. Check the selected IDs and try again.");
+          setError(compareRequestErrorMessage(error));
           setComparison({ players: [], notes: "", key });
         }
       });

@@ -1,3 +1,4 @@
+import { apiRequestUrl } from "@/lib/api-origin";
 import type {
   CirMetricMetadata,
   CirPlayerDetail,
@@ -10,10 +11,6 @@ import type {
   PlayerSummary,
 } from "@/lib/types";
 
-function serverApiUrl(): string {
-  return process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-}
-
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -25,9 +22,13 @@ export class ApiError extends Error {
 }
 
 async function apiFetch<T>(path: string): Promise<T> {
-  const response = await fetch(`${serverApiUrl()}${path}`, { cache: "no-store" });
+  const response = await fetch(apiRequestUrl(path), { cache: "no-store" });
+  const contentType = response.headers.get("content-type") ?? "";
   if (!response.ok) {
     throw new ApiError(response.status, `Request failed (${response.status})`);
+  }
+  if (!contentType.includes("application/json")) {
+    throw new ApiError(response.status, "API returned a non-JSON response");
   }
   return (await response.json()) as T;
 }

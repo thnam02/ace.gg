@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: str = "http://localhost:3000"
+    cors_origin_regex: str = r"https://.*\.vercel\.app"
     docs_enabled: bool = True
     data_provider: str = "mock"
     vlrggapi_base_url: str = "http://127.0.0.1:3001"
@@ -22,6 +23,11 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def cors_origin_regex_value(self) -> str | None:
+        value = self.cors_origin_regex.strip()
+        return value or None
 
     @property
     def vlr_default_player_list(self) -> list[str]:

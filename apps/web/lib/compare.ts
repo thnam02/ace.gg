@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api";
 import type {
   CirPlayerDetail,
   PlayerCompareEntry,
@@ -62,6 +63,13 @@ export function addCompareId(
 
 export function removeCompareId(ids: string[], id: string): string[] {
   return ids.filter((value) => value !== id);
+}
+
+export function compareRequestErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && (error.status === 404 || error.status === 422)) {
+    return "The comparison request failed. Check the selected IDs and try again.";
+  }
+  return "Could not load this comparison. Check the connection and try again.";
 }
 
 export function compareEmptyMessage(count: number): string {
