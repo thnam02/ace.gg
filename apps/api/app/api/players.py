@@ -22,6 +22,26 @@ from app.services.player_query import PlayerNotFoundError, PlayerQueryService
 
 router = APIRouter(prefix="/players", tags=["players"])
 
+_MIN_COMPARE_PLAYERS = 2
+_MAX_COMPARE_PLAYERS = 4
+
+
+def _require_compare_ids(player_ids: list[str]) -> list[str]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+    for raw in player_ids:
+        for part in raw.split(","):
+            player_id = part.strip()
+            if player_id and player_id not in seen:
+                seen.add(player_id)
+                expanded.append(player_id)
+    if not _MIN_COMPARE_PLAYERS <= len(expanded) <= _MAX_COMPARE_PLAYERS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Compare requires {_MIN_COMPARE_PLAYERS}–{_MAX_COMPARE_PLAYERS} player IDs.",
+        )
+    return expanded
+
 
 def get_player_query_service(db: Session = Depends(get_db)) -> PlayerQueryService:
     return PlayerQueryService(db)
@@ -82,7 +102,7 @@ def list_player_options(
 def compare_players(
     player_ids: list[str] = Query(
         ...,
-        min_length=2,
+        min_length=1,
         max_length=4,
         description="Player IDs to compare",
     ),
@@ -90,6 +110,7 @@ def compare_players(
     service: PlayerQueryService = Depends(get_player_query_service),
     ranking: CirRankingService = Depends(get_ranking_service),
 ) -> PlayerCompareResponse:
+    player_ids = _require_compare_ids(player_ids)
     try:
         payload = service.compare_players(player_ids, filters)
         try:
@@ -111,13 +132,14 @@ def compare_players(
 def compare_players_cir(
     player_ids: list[str] = Query(
         ...,
-        min_length=2,
+        min_length=1,
         max_length=4,
         description="Player IDs to compare",
     ),
     metric_version: str | None = Query(None),
     service: CirRankingService = Depends(get_ranking_service),
 ) -> CirCompareResponse:
+    player_ids = _require_compare_ids(player_ids)
     try:
         return service.compare(player_ids, metric_version=metric_version)
     except PlayerNotFoundError:

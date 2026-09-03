@@ -12,13 +12,14 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db import get_db
-from app.main import app
-
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql://valorant:valorant@127.0.0.1:5432/valorant_scout_test",
 )
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
+from app.db import get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 API_ROOT = Path(__file__).resolve().parents[1]
 

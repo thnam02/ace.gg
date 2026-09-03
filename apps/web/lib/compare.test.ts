@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { ApiError } from "@/lib/api";
 import {
   MAX_COMPARE_MESSAGE,
   MAX_COMPARE_PLAYERS,
@@ -10,6 +11,7 @@ import {
   compareEmptyMessage,
   compareHref,
   compareOptionFromCir,
+  compareRequestErrorMessage,
   isResolvedCompareHandle,
   parseCompareIds,
   pickCompareSearchMatch,
@@ -34,6 +36,18 @@ describe("compare selection", () => {
   it("returns empty-state copy", () => {
     expect(compareEmptyMessage(0)).toBe("Select 2–4 players to compare.");
     expect(compareEmptyMessage(1)).toBe("Add at least one more player.");
+  });
+
+  it("keeps ID copy for validation failures and uses connection copy otherwise", () => {
+    expect(compareRequestErrorMessage(new ApiError(422, "bad"))).toBe(
+      "The comparison request failed. Check the selected IDs and try again.",
+    );
+    expect(compareRequestErrorMessage(new ApiError(429, "slow down"))).toBe(
+      "Too many comparison requests. Wait a moment and try again.",
+    );
+    expect(compareRequestErrorMessage(new Error("Failed to fetch"))).toBe(
+      "Could not load this comparison. Check the connection and try again.",
+    );
   });
 
   it("uses responsive grid classes for 2, 3, and 4 players", () => {

@@ -171,3 +171,16 @@ def test_compare_skips_unknown_player_ids(client: TestClient, db_session: Sessio
     assert len(payload["players"]) == 1
     assert payload["players"][0]["player"]["handle"] == "TenZ"
     assert "Unknown player IDs: not-valid" in payload["notes"]
+
+
+def test_compare_accepts_comma_separated_player_ids(client: TestClient, db_session: Session) -> None:
+    graph = _seed_compare_graph(db_session)
+    response = client.get(
+        "/players/compare",
+        params={
+            "player_ids": f"{graph['player'].id},{graph['teammate'].id}",
+        },
+    )
+    assert response.status_code == 200
+    handles = {entry["player"]["handle"] for entry in response.json()["players"]}
+    assert handles == {"TenZ", "zekken"}

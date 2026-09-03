@@ -26,6 +26,9 @@ services:
       API_PORT: 8000
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       DOCS_ENABLED: ${DOCS_ENABLED:-true}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-600}
+      RATE_LIMIT_COMPARE_PER_MINUTE: ${RATE_LIMIT_COMPARE_PER_MINUTE:-60}
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
