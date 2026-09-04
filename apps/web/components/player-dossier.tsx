@@ -25,16 +25,37 @@ import type { CirPlayerDetail, PlayerDetailResponse } from "@/lib/types";
 type PlayerDossierProps = {
   detail: PlayerDetailResponse;
   cir: CirPlayerDetail | null;
+  eventId?: string | null;
 };
 
-export function PlayerDossier({ detail, cir }: PlayerDossierProps) {
+export function PlayerDossier({ detail, cir, eventId = null }: PlayerDossierProps) {
+  const eventMode = eventId != null;
   const derived = detail.aggregate.derived;
   const kprDelta = kprExpectation(cir?.kpr_residual);
   const deathDelta = deathAvoidanceExpectation(cir?.negative_dpr_residual);
 
+  const openingFrequency = eventMode
+    ? (cir?.opening_frequency ?? derived.opening_frequency)
+    : derived.opening_frequency;
+  const openingEfficiency = eventMode
+    ? (cir?.opening_efficiency ?? derived.opening_efficiency)
+    : derived.opening_efficiency;
+  const fkpr = eventMode ? (cir?.fk_per_round ?? derived.fkpr) : derived.fkpr;
+  const fdpr = eventMode ? (cir?.fd_per_round ?? derived.fdpr) : derived.fdpr;
+  const apr = eventMode ? (cir?.apr ?? derived.apr) : derived.apr;
+  const kast = eventMode
+    ? (cir?.kast ?? detail.aggregate.raw.weighted_kast)
+    : detail.aggregate.raw.weighted_kast;
+  const clutch = eventMode ? (cir?.clutch ?? derived.raw_clutch_rate) : derived.raw_clutch_rate;
+  const acs = eventMode ? (cir?.acs ?? detail.stats.acs) : detail.stats.acs;
+  const adr = eventMode ? (cir?.adr ?? detail.stats.adr) : detail.stats.adr;
+  const kd = eventMode ? (cir?.kd ?? detail.stats.kd) : detail.stats.kd;
+  const hs = eventMode ? (cir?.hs_pct ?? detail.stats.hs_percent) : detail.stats.hs_percent;
+  const winRate = eventMode ? (cir?.win_rate ?? detail.stats.win_rate) : detail.stats.win_rate;
+
   return (
     <div className="mx-auto w-full max-w-[1200px] space-y-6">
-      <PlayerHeroCard player={detail.player} cir={cir} />
+      <PlayerHeroCard player={detail.player} cir={cir} eventId={eventId} />
 
       <section aria-labelledby="why-score-heading" className="space-y-3">
         <div>
@@ -63,31 +84,31 @@ export function PlayerDossier({ detail, cir }: PlayerDossierProps) {
 
       <ScoutingStatsPanel
         combat={[
-          { label: "ACS", value: formatAcs(detail.stats.acs) },
-          { label: "ADR", value: formatAdr(detail.stats.adr) },
-          { label: "K/D", value: formatKd(detail.stats.kd) },
-          { label: "HS%", value: formatHs(detail.stats.hs_percent) },
+          { label: "ACS", value: formatAcs(acs) },
+          { label: "ADR", value: formatAdr(adr) },
+          { label: "K/D", value: formatKd(kd) },
+          { label: "HS%", value: formatHs(hs) },
         ]}
         opening={[
           {
             label: "Opening frequency",
-            value: openingFrequencyDisplay(derived.opening_frequency),
-            helper: openingFrequencyHelper(derived.opening_frequency),
+            value: openingFrequencyDisplay(openingFrequency),
+            helper: openingFrequencyHelper(openingFrequency),
           },
           {
             label: "Opening efficiency",
-            value: openingEfficiencyDisplay(derived.opening_efficiency),
-            helper: openingEfficiencyHelper(derived.opening_efficiency),
+            value: openingEfficiencyDisplay(openingEfficiency),
+            helper: openingEfficiencyHelper(openingEfficiency),
           },
           {
             label: "FK/R",
-            value: formatRate(derived.fkpr),
+            value: formatRate(fkpr),
             helper: "First kills per round",
             title: "First kills per round",
           },
           {
             label: "FD/R",
-            value: formatRate(derived.fdpr),
+            value: formatRate(fdpr),
             helper: "First deaths per round",
             title: "First deaths per round",
           },
@@ -95,20 +116,20 @@ export function PlayerDossier({ detail, cir }: PlayerDossierProps) {
         support={[
           {
             label: "APR",
-            value: formatRate(derived.apr),
+            value: formatRate(apr),
             helper: "Assists per round",
           },
-          { label: "KAST", value: formatPercent(detail.aggregate.raw.weighted_kast) },
+          { label: "KAST", value: formatPercent(kast) },
         ]}
         other={[
           {
             label: "Clutch",
             value: formatClutchStat(
-              derived.raw_clutch_rate,
-              detail.aggregate.raw.clutch_attempts,
+              clutch,
+              eventMode ? null : detail.aggregate.raw.clutch_attempts,
             ),
           },
-          { label: "Win rate", value: formatWinRate(detail.stats.win_rate) },
+          { label: "Win rate", value: formatWinRate(winRate) },
         ]}
       />
     </div>

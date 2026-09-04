@@ -17,7 +17,9 @@ def get_event_query_service(db: Session = Depends(get_db)) -> EventQueryService:
 @router.get("", response_model=EventListResponse)
 def list_events(
     region: str | None = Query(None),
+    tier: str | None = Query(None),
     circuit: str | None = Query(None),
+    year: int | None = Query(None),
     season_year: int | None = Query(None),
     status: str | None = Query(None),
     limit: int = Query(200, ge=1, le=500),
@@ -27,8 +29,9 @@ def list_events(
     try:
         return service.list_events(
             region=region,
+            tier=tier,
             circuit=circuit,
-            season_year=season_year,
+            season_year=year if year is not None else season_year,
             status=status,
             limit=limit,
             offset=offset,

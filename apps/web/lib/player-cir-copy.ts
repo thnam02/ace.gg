@@ -9,6 +9,12 @@ export const WHY_THIS_SCORE_NOTE =
 export const METRIC_VERSION_TOOLTIP =
   "Scores use frozen role+tier expectations from the CIR v0.2 reference population.";
 
+export const EVENT_CIR_TOOLTIP =
+  "This CIR score is calculated from the selected event only, using the frozen CIR v0.2 reference population.";
+
+export const EVENT_SCOPE_NOTE =
+  "Event-only performance / Scored using frozen CIR v0.2 reference";
+
 const ROLE_PLURALS: Record<string, string> = {
   duelist: "Duelists",
   sentinel: "Sentinels",
@@ -76,6 +82,32 @@ export function rankHeadline(
     return { rank: `#${rank}`, of: null };
   }
   return { rank: "Not ranked", of: null };
+}
+
+export function eventRankHeadline(
+  eventRank: number | null | undefined,
+  eventPlayerCount: number | null | undefined,
+): { rank: string; of: string | null } {
+  if (eventRank != null && eventPlayerCount != null && eventPlayerCount > 0) {
+    return { rank: `#${eventRank} / ${eventPlayerCount}`, of: null };
+  }
+  if (eventRank != null) {
+    return { rank: `#${eventRank}`, of: null };
+  }
+  return { rank: "Not ranked", of: null };
+}
+
+export function eventRankLine(
+  eventRank: number | null | undefined,
+  eventPlayerCount: number | null | undefined,
+): string {
+  if (eventRank != null && eventPlayerCount != null && eventPlayerCount > 0) {
+    return `Event rank #${eventRank} of ${eventPlayerCount}`;
+  }
+  if (eventRank != null) {
+    return `Event rank #${eventRank}`;
+  }
+  return "Not ranked in this event";
 }
 
 export function playerIdentityLine(

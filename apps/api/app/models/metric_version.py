@@ -11,6 +11,7 @@ from app.db import Base
 from app.models.mixins import CreatedAtMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
+    from app.models.player_metric_scoped_snapshot import PlayerMetricScopedSnapshot
     from app.models.player_metric_snapshot import PlayerMetricSnapshot
 
 
@@ -40,6 +41,12 @@ class MetricVersion(UUIDPrimaryKeyMixin, CreatedAtMixin, Base):
 
     snapshots: Mapped[list[PlayerMetricSnapshot]] = relationship(
         "PlayerMetricSnapshot",
+        back_populates="metric_version",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    scoped_snapshots: Mapped[list[PlayerMetricScopedSnapshot]] = relationship(
+        "PlayerMetricScopedSnapshot",
         back_populates="metric_version",
         cascade="all, delete-orphan",
         passive_deletes=True,

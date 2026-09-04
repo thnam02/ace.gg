@@ -10,6 +10,7 @@ from app.models.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 
 if TYPE_CHECKING:
     from app.models.player_map_stats import PlayerMapStats
+    from app.models.player_metric_scoped_snapshot import PlayerMetricScopedSnapshot
     from app.models.player_metric_snapshot import PlayerMetricSnapshot
     from app.models.player_team_history import PlayerTeamHistory
 
@@ -32,5 +33,9 @@ class Player(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     metric_snapshots: Mapped[list[PlayerMetricSnapshot]] = relationship(
         "PlayerMetricSnapshot",
+        back_populates="player",
+    )
+    scoped_metric_snapshots: Mapped[list[PlayerMetricScopedSnapshot]] = relationship(
+        "PlayerMetricScopedSnapshot",
         back_populates="player",
     )

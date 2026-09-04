@@ -20,6 +20,7 @@ class EventQueryService:
         self,
         *,
         region: str | None = None,
+        tier: str | None = None,
         circuit: str | None = None,
         season_year: int | None = None,
         status: str | None = None,
@@ -37,6 +38,8 @@ class EventQueryService:
         for event in rows:
             canonical = event_ranking_region(region=event.region, name=event.name)
             if wanted_region and canonical != wanted_region:
+                continue
+            if tier and (event.tier or "").upper() != tier.upper():
                 continue
             if circuit and (event.circuit or "").lower() != circuit.lower():
                 continue

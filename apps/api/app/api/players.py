@@ -152,10 +152,15 @@ def compare_players_cir(
 def get_player_cir(
     player_id: str,
     metric_version: str | None = Query(None),
+    event_id: str | None = Query(None, description="UUID of Event for event-scoped CIR"),
     service: CirRankingService = Depends(get_ranking_service),
 ) -> CirPlayerDetail:
     try:
-        return service.player_cir(player_id, metric_version=metric_version)
+        return service.player_cir(
+            player_id,
+            metric_version=metric_version,
+            event_id=event_id,
+        )
     except PlayerNotFoundError:
         raise HTTPException(status_code=404, detail="Player not found") from None
     except ValueError as exc:

@@ -25,6 +25,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
+vi.mock("@phosphor-icons/react", async () => {
+  const actual = await vi.importActual<typeof import("@phosphor-icons/react")>(
+    "@phosphor-icons/react",
+  );
+  return {
+    ...actual,
+    XIcon: (props: { className?: string; "aria-hidden"?: boolean | string }) => (
+      <span data-testid="x-icon" {...props} />
+    ),
+  };
+});
+
 function player(index: number): CirRankingPlayer {
   return {
     rank: index,
@@ -81,13 +93,63 @@ describe("CirRankings pagination", () => {
     expect(html).toContain('type="search"');
     expect(html).toContain(">Tier<");
     expect(html).toContain(">Region<");
+    expect(html).toContain(">Event<");
     expect(html).toContain(">Role<");
     expect(html).toContain(">Sort by<");
     expect(html).toContain(">Order<");
+    expect(html).toContain(">Minimum rounds<");
     expect(html).toContain("Include provisional");
     expect(html).toContain(">Apply<");
     expect(html).toContain(">Reset<");
     expect(html).toContain("Sentinels");
+  });
+
+  it("renders event-scoped title chips and player event links", () => {
+    const eventId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const html = renderToStaticMarkup(
+      <CirRankings
+        players={[player(1)]}
+        includeProvisional
+        tooltip="Event CIR"
+        title="Event CIR Rankings · Pacific Stage 2"
+        eventScoped
+        eventName="Pacific Stage 2"
+        initialFilters={{
+          query: "",
+          tier: "T1",
+          region: "Pacific",
+          eventId,
+          role: null,
+          sort: "cir",
+          order: "desc",
+          minRounds: null,
+        }}
+        events={[
+          {
+            id: eventId,
+            vlr_event_id: 1,
+            name: "Pacific Stage 2",
+            region: "Pacific",
+            canonical_region: "Pacific",
+            tier: "T1",
+            circuit: null,
+            stage: null,
+            status: "COMPLETED",
+            start_date: null,
+            end_date: null,
+            season_year: 2026,
+          },
+        ]}
+      />,
+    );
+    expect(html).toContain("Event CIR Rankings · Pacific Stage 2");
+    expect(html).toContain(">T1<");
+    expect(html).toContain(">Pacific<");
+    expect(html).toContain(">Pacific Stage 2<");
+    expect(html).toContain(`href="/players/player-1?event=${eventId}"`);
+    expect(html).toContain("Event rounds");
+    expect(html).toContain(">Sample<");
+    expect(html).not.toContain("Include provisional");
   });
 
   it("highlights the main role and keeps other played roles visible", () => {

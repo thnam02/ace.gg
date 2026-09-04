@@ -82,9 +82,18 @@ export async function fetchPlayer(playerId: string): Promise<PlayerProfile | nul
   });
 }
 
-export async function fetchPlayerDetail(playerId: string): Promise<PlayerDetailResponse | null> {
+export async function fetchPlayerDetail(
+  playerId: string,
+  options?: { eventId?: string | null },
+): Promise<PlayerDetailResponse | null> {
   try {
-    return await apiFetch<PlayerDetailResponse>(`/players/${encodeURIComponent(playerId)}`);
+    const params = new URLSearchParams();
+    if (options?.eventId) {
+      params.set("event_id", options.eventId);
+    }
+    const query = params.toString();
+    const path = `/players/${encodeURIComponent(playerId)}${query ? `?${query}` : ""}`;
+    return await apiFetch<PlayerDetailResponse>(path);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       return null;
@@ -130,13 +139,49 @@ export async function fetchPlayerOptions(options?: {
 export const CIR_RANKING_FETCH_LIMIT = 2000;
 
 export async function fetchCirRankings(options?: {
+  eventId?: string | null;
   includeProvisional?: boolean;
+  includeLowSample?: boolean;
+  minRounds?: number | null;
+  role?: string | null;
+  tier?: string | null;
+  region?: string | null;
+  sort?: string | null;
+  order?: string | null;
+  search?: string | null;
   limit?: number;
   offset?: number;
 }): Promise<CirRankingResponse> {
   const params = new URLSearchParams();
-  if (options?.includeProvisional) {
+  if (options?.eventId) {
+    params.set("event_id", options.eventId);
+  }
+  if (options?.includeProvisional || options?.eventId) {
     params.set("include_provisional", "true");
+  }
+  if (options?.includeLowSample || options?.eventId) {
+    params.set("include_low_sample", "true");
+  }
+  if (options?.minRounds != null) {
+    params.set("min_rounds", String(options.minRounds));
+  }
+  if (options?.role) {
+    params.set("role", options.role);
+  }
+  if (options?.tier) {
+    params.set("tier", options.tier);
+  }
+  if (options?.region) {
+    params.set("region", options.region);
+  }
+  if (options?.sort) {
+    params.set("sort", options.sort);
+  }
+  if (options?.order) {
+    params.set("order", options.order);
+  }
+  if (options?.search) {
+    params.set("search", options.search);
   }
   params.set("limit", String(options?.limit ?? CIR_RANKING_FETCH_LIMIT));
   params.set("offset", String(options?.offset ?? 0));
@@ -145,18 +190,36 @@ export async function fetchCirRankings(options?: {
 }
 
 export async function fetchEventCirRankings(options: {
-  vlrEventId: number;
+  eventId?: string;
+  vlrEventId?: number;
   includeProvisional?: boolean;
   includeLowSample?: boolean;
+  minRounds?: number | null;
   limit?: number;
   offset?: number;
 }): Promise<CirRankingResponse> {
+  if (options.eventId) {
+    return fetchCirRankings({
+      eventId: options.eventId,
+      includeProvisional: options.includeProvisional,
+      includeLowSample: options.includeLowSample,
+      minRounds: options.minRounds,
+      limit: options.limit,
+      offset: options.offset,
+    });
+  }
+  if (options.vlrEventId == null) {
+    throw new Error("fetchEventCirRankings requires eventId or vlrEventId");
+  }
   const params = new URLSearchParams();
   if (options.includeProvisional !== false) {
     params.set("include_provisional", "true");
   }
   if (options.includeLowSample !== false) {
     params.set("include_low_sample", "true");
+  }
+  if (options.minRounds != null) {
+    params.set("min_rounds", String(options.minRounds));
   }
   params.set("limit", String(options.limit ?? CIR_RANKING_FETCH_LIMIT));
   params.set("offset", String(options.offset ?? 0));
@@ -166,29 +229,48 @@ export async function fetchEventCirRankings(options: {
 }
 
 export async function fetchEvents(options?: {
+  year?: number | null;
+  tier?: string | null;
   region?: string | null;
+  status?: string | null;
   circuit?: string | null;
   seasonYear?: number | null;
   limit?: number;
 }): Promise<EventListResponse> {
   const params = new URLSearchParams();
+  const year = options?.year ?? options?.seasonYear ?? 2026;
+  if (year != null) {
+    params.set("year", String(year));
+  }
+  if (options?.tier) {
+    params.set("tier", options.tier);
+  }
   if (options?.region) {
     params.set("region", options.region);
   }
+  if (options?.status) {
+    params.set("status", options.status);
+  }
   if (options?.circuit) {
     params.set("circuit", options.circuit);
-  }
-  if (options?.seasonYear != null) {
-    params.set("season_year", String(options.seasonYear));
   }
   params.set("limit", String(options?.limit ?? 200));
   const query = params.toString();
   return apiFetch<EventListResponse>(`/events?${query}`);
 }
 
-export async function fetchPlayerCir(playerId: string): Promise<CirPlayerDetail | null> {
+export async function fetchPlayerCir(
+  playerId: string,
+  options?: { eventId?: string | null },
+): Promise<CirPlayerDetail | null> {
   try {
-    return await apiFetch<CirPlayerDetail>(`/players/${encodeURIComponent(playerId)}/cir`);
+    const params = new URLSearchParams();
+    if (options?.eventId) {
+      params.set("event_id", options.eventId);
+    }
+    const query = params.toString();
+    const path = `/players/${encodeURIComponent(playerId)}/cir${query ? `?${query}` : ""}`;
+    return await apiFetch<CirPlayerDetail>(path);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) {
       return null;

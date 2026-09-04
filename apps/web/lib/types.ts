@@ -144,6 +144,17 @@ export type RoleMix = {
   is_main: boolean;
 };
 
+export type RankingScope = {
+  type: string;
+  label: string;
+  event_id?: string | null;
+  vlr_event_id?: number | null;
+  tier?: string | null;
+  region?: string | null;
+  status?: string | null;
+  season_year?: number | null;
+};
+
 export type CirRankingPlayer = {
   rank: number;
   player_id: string;
@@ -156,12 +167,27 @@ export type CirRankingPlayer = {
   primary_agent: string | null;
   cir: number | null;
   reliability: string | null;
+  reliability_pct?: number | null;
   rounds: number;
   maps: number;
+  matches?: number | null;
   kpr: number | null;
   dpr: number | null;
+  acs?: number | null;
+  adr?: number | null;
+  kd?: number | null;
+  hs_pct?: number | null;
+  apr?: number | null;
+  kast?: number | null;
+  opening_frequency?: number | null;
+  opening_efficiency?: number | null;
+  fk_per_round?: number | null;
+  fd_per_round?: number | null;
+  win_rate?: number | null;
+  clutch?: number | null;
   sample_status: string | null;
   metric_version: string;
+  rank_label?: string | null;
 };
 
 export type CirRankingResponse = {
@@ -171,11 +197,14 @@ export type CirRankingResponse = {
   limit: number;
   offset: number;
   players: CirRankingPlayer[];
-  scope?: "season" | "event";
+  /** Newer APIs return RankingScope; older clients may still see "season" | "event". */
+  scope?: RankingScope | "season" | "event";
   event_id?: string | null;
   vlr_event_id?: number | null;
   event_name?: string | null;
   event_region?: string | null;
+  event_tier?: string | null;
+  event_status?: string | null;
   note?: string | null;
 };
 
@@ -208,6 +237,8 @@ export type CirPlayerDetail = {
   tier?: string | null;
   rank?: number | null;
   established_count?: number;
+  event_rank?: number | null;
+  event_player_count?: number | null;
   cir: number | null;
   raw_cir: number | null;
   reliability: string | null;
@@ -215,6 +246,7 @@ export type CirPlayerDetail = {
   sample_status: string | null;
   rounds: number;
   maps: number;
+  matches?: number | null;
   combat_factor: number | null;
   kpr: number | null;
   dpr: number | null;
@@ -222,10 +254,24 @@ export type CirPlayerDetail = {
   expected_dpr: number | null;
   kpr_residual: number | null;
   negative_dpr_residual: number | null;
+  acs?: number | null;
+  adr?: number | null;
+  kd?: number | null;
+  hs_pct?: number | null;
+  apr?: number | null;
+  kast?: number | null;
+  opening_frequency?: number | null;
+  opening_efficiency?: number | null;
+  fk_per_round?: number | null;
+  fd_per_round?: number | null;
+  win_rate?: number | null;
+  clutch?: number | null;
   metric_version: string;
   reference_period_start: string | null;
   reference_period_end: string | null;
   interpretation: string | null;
+  scope?: RankingScope | null;
+  note?: string | null;
 };
 
 export type CirMetricMetadata = {
