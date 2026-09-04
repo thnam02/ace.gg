@@ -78,6 +78,18 @@ class EventCirSnapshotService:
         event_id: UUID,
         vlr_event_id: int | None = None,
     ) -> list[EventScopedPlayerBundle]:
+        """Score event players with production CIR primitives (map-by-map).
+
+        Pipeline (identical to global CIR, observation window = event maps only):
+        1. per-map KPR/DPR via ``score_stats_with_frozen`` / ``score_observation``
+        2. frozen role+tier expectations, train μ/σ, CombatFactor_map
+        3. round-weighted aggregate of CombatFactor_map → EventRawCIR
+        4. k=50 shrinkage using event rounds + frozen reference mean
+        5. frozen v0.2 global reference CDF → EventCIR
+
+        Descriptive rates (ACS/ADR/…) are aggregated separately for display and
+        do not feed CombatFactor.
+        """
         stats = load_eligible_player_map_stats(
             self._session,
             require_complete_maps=self._require_complete_maps,

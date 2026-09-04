@@ -190,12 +190,24 @@ def test_list_events_filters_by_tier_and_year(client: TestClient, db_session: Se
     assert any(row["vlr_event_id"] == 3001 for row in t2["events"])
 
 
-def test_event_cir_rankings_score_without_writing_season_snapshots(
+def test_event_cir_rankings_require_persisted_snapshots(
     client: TestClient, db_session: Session
 ) -> None:
     graph = _seed_event_scoring_graph(db_session)
     event: Event = graph["event"]
     version: MetricVersion = graph["metric_version"]
+
+    # Without backfill: explicit empty / not-ready (no live scoring).
+    empty = client.get(f"/rankings/cir/by-event/{event.vlr_event_id}")
+    assert empty.status_code == 200
+    empty_payload = empty.json()
+    assert empty_payload["total"] == 0
+    assert empty_payload["players"] == []
+    assert "not ready" in (empty_payload["note"] or "").lower()
+
+    EventCirSnapshotService(db_session, require_complete_maps=True).refresh_event(event)
+    db_session.commit()
+
     before = db_session.scalar(
         select(func.count()).select_from(PlayerMetricSnapshot).where(
             PlayerMetricSnapshot.metric_version_id == version.id
@@ -223,6 +235,8 @@ def test_event_cir_rankings_score_without_writing_season_snapshots(
 def test_rankings_cir_event_id_query(client: TestClient, db_session: Session) -> None:
     graph = _seed_event_scoring_graph(db_session)
     event: Event = graph["event"]
+    EventCirSnapshotService(db_session, require_complete_maps=True).refresh_event(event)
+    db_session.commit()
     response = client.get("/rankings/cir", params={"event_id": str(event.id)})
     assert response.status_code == 200
     payload = response.json()

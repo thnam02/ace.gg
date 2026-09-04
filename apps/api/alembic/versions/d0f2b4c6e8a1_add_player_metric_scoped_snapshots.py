@@ -21,7 +21,12 @@ def upgrade() -> None:
     op.create_table(
         "player_metric_scoped_snapshots",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.Column("metric_version_id", sa.Uuid(), nullable=False),
         sa.Column("player_id", sa.Uuid(), nullable=False),
         sa.Column("scope_type", sa.String(length=32), nullable=False),

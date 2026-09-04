@@ -237,7 +237,7 @@ def profile_has_team_evidence(payload: dict[str, Any]) -> bool:
 def _is_truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return value != 0
     text = str(value or "").strip().lower()
     return text in {"1", "true", "yes", "staff"}

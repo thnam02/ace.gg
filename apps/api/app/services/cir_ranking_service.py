@@ -52,7 +52,6 @@ from app.schemas.cir_ranking import (
 from app.schemas.player_api import PlayerCompareCir, TeamRef
 from app.schemas.vct_circuit import CircuitName, EventStatus
 from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
-from app.services.event_cir_snapshot_service import EventCirSnapshotService, EventScopedPlayerBundle
 from app.services.player_query import PlayerNotFoundError, PlayerQueryService
 from app.services.vct_sync_service import latest_match_played_at, latest_sync_run
 
@@ -61,6 +60,10 @@ _EVENT_CIR_NOTE = (
     "CIR uses the frozen v0.2 reference population."
 )
 _NO_MAPS_NOTE = "No completed maps yet."
+_SNAPSHOTS_NOT_READY_NOTE = (
+    "Event CIR snapshots are not ready. "
+    "Run backfill_event_cir_snapshots before querying this event."
+)
 _EVENT_RANK_LABEL = "Event rank"
 
 # Older clients used scope="season"; RankingScope is required by the new schema.
@@ -334,46 +337,39 @@ class CirRankingService:
             )
 
         scoped_rows = self._load_event_scoped_rows(version.id, event.id)
-        if scoped_rows:
-            player_ids = [player.id for _snapshot, player, _team in scoped_rows]
-            role_counts = self._role_counts_lookup(player_ids, event_id=event.id)
-            candidates = [
-                _to_scoped_ranking_player(
-                    rank=0,
-                    snapshot=snapshot,
-                    player=player,
-                    team=team_row,
-                    version=version,
-                    event_region=event_region,
-                    role_counts=role_counts.get(player.id, {}),
-                )
-                for snapshot, player, team_row in scoped_rows
-            ]
-        else:
-            bundles = EventCirSnapshotService(
-                self._session,
-                require_complete_maps=True,
-            ).score_event_bundles(
-                frozen,
-                event_id=event.id,
+        if not scoped_rows:
+            return CirRankingResponse(
+                metric_name=version.name,
+                metric_version=version.version,
+                metric_version_id=str(version.id),
+                total=0,
+                limit=limit,
+                offset=offset,
+                players=[],
+                scope=scope,
+                event_id=str(event.id),
                 vlr_event_id=event.vlr_event_id,
+                event_name=event.name,
+                event_region=event_region,
+                event_tier=event.tier,
+                event_status=event.status,
+                note=_SNAPSHOTS_NOT_READY_NOTE,
             )
-            players_by_id = self._players_by_ids([bundle.score.player_id for bundle in bundles])
-            role_counts = self._role_counts_lookup(
-                [bundle.score.player_id for bundle in bundles],
-                event_id=event.id,
+
+        player_ids = [player.id for _snapshot, player, _team in scoped_rows]
+        role_counts = self._role_counts_lookup(player_ids, event_id=event.id)
+        candidates = [
+            _to_scoped_ranking_player(
+                rank=0,
+                snapshot=snapshot,
+                player=player,
+                team=team_row,
+                version=version,
+                event_region=event_region,
+                role_counts=role_counts.get(player.id, {}),
             )
-            candidates = [
-                _to_bundle_ranking_player(
-                    rank=0,
-                    bundle=bundle,
-                    player=players_by_id.get(bundle.score.player_id),
-                    version=version,
-                    event_region=event_region,
-                    role_counts=role_counts.get(bundle.score.player_id, {}),
-                )
-                for bundle in bundles
-            ]
+            for snapshot, player, team_row in scoped_rows
+        ]
 
         statuses = set(
             _allowed_statuses(
@@ -516,164 +512,82 @@ class CirRankingService:
             raise PlayerNotFoundError(player_ref)
 
         scoped_rows = self._load_event_scoped_rows(version.id, event.id)
-        if scoped_rows:
-            ranked = sorted(
-                scoped_rows,
-                key=lambda item: (
-                    -(item[0].cir_percentile or 0.0),
-                    -item[0].rounds,
-                    item[1].handle.lower(),
-                ),
-            )
-            event_player_count = len(ranked)
-            player_row = next(
-                (
-                    (index, snapshot, row_player, team_row)
-                    for index, (snapshot, row_player, team_row) in enumerate(ranked)
-                    if row_player.id == player.id
-                ),
-                None,
-            )
-            if player_row is None:
-                raise PlayerNotFoundError(player_ref)
-            event_rank, snapshot, _row_player, team_row = player_row
-            role_counts = self._role_counts_lookup(
-                [player.id],
-                event_id=event.id,
-            ).get(player.id, {})
-            identity_team = _team_ref(player, team_row)
-            cir_role = snapshot.role
-            return CirPlayerDetail(
-                player_id=str(player.id),
-                handle=player.handle,
-                team=identity_team,
-                role=cir_role,
-                roles=build_role_mix(role_counts, cir_role),
-                tier=snapshot.tier,
-                event_rank=event_rank + 1,
-                event_player_count=event_player_count,
-                cir=snapshot.cir_percentile,
-                raw_cir=snapshot.raw_cir,
-                shrunk_raw_cir=snapshot.shrunk_raw_cir,
-                reliability=snapshot.reliability,
-                reliability_pct=reliability_pct_for_rounds(snapshot.rounds),
-                sample_status=snapshot.sample_status,
-                rounds=snapshot.rounds,
-                maps=snapshot.maps,
-                matches=snapshot.matches,
-                events=1,
-                combat_factor=snapshot.combat_factor,
-                kpr=snapshot.kpr,
-                dpr=snapshot.dpr,
-                expected_kpr=snapshot.expected_kpr,
-                expected_dpr=snapshot.expected_dpr,
-                kpr_residual=snapshot.kpr_residual,
-                negative_dpr_residual=snapshot.negative_dpr_residual,
-                sample_weight=snapshot.sample_weight,
-                acs=snapshot.acs,
-                adr=snapshot.adr,
-                kd=snapshot.kd,
-                hs_pct=snapshot.hs_pct,
-                apr=snapshot.apr,
-                kast=snapshot.kast,
-                opening_frequency=snapshot.opening_frequency,
-                opening_efficiency=snapshot.opening_efficiency,
-                fk_per_round=snapshot.fk_per_round,
-                fd_per_round=snapshot.fd_per_round,
-                win_rate=snapshot.win_rate,
-                clutch=snapshot.clutch,
-                metric_version=version.version,
-                metric_version_id=str(version.id),
-                reference_period_start=(
-                    version.training_start.isoformat() if version.training_start else None
-                ),
-                reference_period_end=(
-                    version.training_end.isoformat() if version.training_end else None
-                ),
-                interpretation=PUBLIC_INTERPRETATION,
-                scope=scope,
-                note=_EVENT_CIR_NOTE,
-            )
+        if not scoped_rows:
+            raise ValueError(_SNAPSHOTS_NOT_READY_NOTE)
 
-        bundles = EventCirSnapshotService(
-            self._session,
-            require_complete_maps=True,
-        ).score_event_bundles(
-            frozen,
-            event_id=event.id,
-            vlr_event_id=event.vlr_event_id,
-        )
-        ranked_bundles = sorted(
-            bundles,
+        ranked = sorted(
+            scoped_rows,
             key=lambda item: (
-                -(item.score.cir or 0.0),
-                -item.score.rounds,
-                (item.score.handle or "").lower(),
+                -(item[0].cir_percentile or 0.0),
+                -item[0].rounds,
+                item[1].handle.lower(),
             ),
         )
-        event_player_count = len(ranked_bundles)
-        match = next(
+        event_player_count = len(ranked)
+        player_row = next(
             (
-                (index, bundle)
-                for index, bundle in enumerate(ranked_bundles)
-                if bundle.score.player_id == player.id
+                (index, snapshot, row_player, team_row)
+                for index, (snapshot, row_player, team_row) in enumerate(ranked)
+                if row_player.id == player.id
             ),
             None,
         )
-        if match is None:
+        if player_row is None:
             raise PlayerNotFoundError(player_ref)
-        event_rank, bundle = match
-        score = bundle.score
-        identity = self._players._to_identity(player)
+        event_rank, snapshot, _row_player, team_row = player_row
         role_counts = self._role_counts_lookup(
             [player.id],
             event_id=event.id,
         ).get(player.id, {})
+        identity_team = _team_ref(player, team_row)
+        cir_role = snapshot.role
         return CirPlayerDetail(
             player_id=str(player.id),
             handle=player.handle,
-            team=identity.team,
-            role=score.role,
-            roles=build_role_mix(role_counts, score.role),
-            tier=score.tier,
+            team=identity_team,
+            role=cir_role,
+            roles=build_role_mix(role_counts, cir_role),
+            tier=snapshot.tier,
             event_rank=event_rank + 1,
             event_player_count=event_player_count,
-            cir=score.cir,
-            raw_cir=score.raw_cir,
-            shrunk_raw_cir=score.shrunk_raw_cir,
-            reliability=score.reliability,
-            reliability_pct=score.reliability_pct,
-            sample_status=score.sample_status,
-            rounds=score.rounds,
-            maps=score.maps,
-            matches=bundle.matches,
+            cir=snapshot.cir_percentile,
+            raw_cir=snapshot.raw_cir,
+            shrunk_raw_cir=snapshot.shrunk_raw_cir,
+            reliability=snapshot.reliability,
+            reliability_pct=reliability_pct_for_rounds(snapshot.rounds),
+            sample_status=snapshot.sample_status,
+            rounds=snapshot.rounds,
+            maps=snapshot.maps,
+            matches=snapshot.matches,
             events=1,
-            combat_factor=score.combat_factor,
-            kpr=score.kpr,
-            dpr=score.dpr,
-            expected_kpr=score.expected_kpr,
-            expected_dpr=score.expected_dpr,
-            kpr_residual=score.kpr_residual,
-            negative_dpr_residual=score.negative_dpr_residual,
-            sample_weight=score.sample_weight,
-            acs=bundle.acs,
-            adr=bundle.adr,
-            kd=bundle.kd,
-            hs_pct=bundle.hs_pct,
-            apr=bundle.apr,
-            kast=bundle.kast,
-            opening_frequency=bundle.opening_frequency,
-            opening_efficiency=bundle.opening_efficiency,
-            fk_per_round=bundle.fk_per_round,
-            fd_per_round=bundle.fd_per_round,
-            win_rate=bundle.win_rate,
-            clutch=bundle.clutch,
+            combat_factor=snapshot.combat_factor,
+            kpr=snapshot.kpr,
+            dpr=snapshot.dpr,
+            expected_kpr=snapshot.expected_kpr,
+            expected_dpr=snapshot.expected_dpr,
+            kpr_residual=snapshot.kpr_residual,
+            negative_dpr_residual=snapshot.negative_dpr_residual,
+            sample_weight=snapshot.sample_weight,
+            acs=snapshot.acs,
+            adr=snapshot.adr,
+            kd=snapshot.kd,
+            hs_pct=snapshot.hs_pct,
+            apr=snapshot.apr,
+            kast=snapshot.kast,
+            opening_frequency=snapshot.opening_frequency,
+            opening_efficiency=snapshot.opening_efficiency,
+            fk_per_round=snapshot.fk_per_round,
+            fd_per_round=snapshot.fd_per_round,
+            win_rate=snapshot.win_rate,
+            clutch=snapshot.clutch,
             metric_version=version.version,
             metric_version_id=str(version.id),
             reference_period_start=(
                 version.training_start.isoformat() if version.training_start else None
             ),
-            reference_period_end=version.training_end.isoformat() if version.training_end else None,
+            reference_period_end=(
+                version.training_end.isoformat() if version.training_end else None
+            ),
             interpretation=PUBLIC_INTERPRETATION,
             scope=scope,
             note=_EVENT_CIR_NOTE,
@@ -1258,58 +1172,6 @@ def _to_scoped_ranking_player(
         win_rate=snapshot.win_rate,
         clutch=snapshot.clutch,
         sample_status=snapshot.sample_status,
-        metric_version=version.version,
-        metric_version_id=str(version.id),
-        rank_label=_EVENT_RANK_LABEL,
-    )
-
-
-def _to_bundle_ranking_player(
-    *,
-    rank: int,
-    bundle: EventScopedPlayerBundle,
-    player: Player | None,
-    version: MetricVersion,
-    event_region: str | None,
-    role_counts: dict[str, int],
-) -> CirRankingPlayer:
-    score = bundle.score
-    team_ref = _team_ref(player, None) if player is not None else None
-    region = pick_ranking_region(
-        team_region=team_ref.region if team_ref is not None else None,
-        event_regions=[event_region],
-    )
-    return CirRankingPlayer(
-        rank=rank,
-        player_id=str(score.player_id),
-        handle=player.handle if player is not None else (score.handle or ""),
-        team=team_ref,
-        role=score.role,
-        roles=build_role_mix(role_counts, score.role),
-        tier=score.tier,
-        region=region,
-        primary_agent=score.primary_agent,
-        cir=score.cir,
-        reliability=score.reliability,
-        reliability_pct=score.reliability_pct,
-        rounds=score.rounds,
-        maps=score.maps,
-        matches=bundle.matches,
-        kpr=score.kpr,
-        dpr=score.dpr,
-        acs=bundle.acs,
-        adr=bundle.adr,
-        kd=bundle.kd,
-        hs_pct=bundle.hs_pct,
-        apr=bundle.apr,
-        kast=bundle.kast,
-        opening_frequency=bundle.opening_frequency,
-        opening_efficiency=bundle.opening_efficiency,
-        fk_per_round=bundle.fk_per_round,
-        fd_per_round=bundle.fd_per_round,
-        win_rate=bundle.win_rate,
-        clutch=bundle.clutch,
-        sample_status=score.sample_status,
         metric_version=version.version,
         metric_version_id=str(version.id),
         rank_label=_EVENT_RANK_LABEL,
