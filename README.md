@@ -46,8 +46,6 @@ npm run dev
 - API: http://localhost:8000
 - Docs: http://localhost:8000/docs (keep `DOCS_ENABLED=false` in production)
 
-In the browser, search and compare go to `/scout-api/*` on the Next app, which proxies to the API. Server-rendered pages call the API origin directly.
-
 ```bash
 cd apps/web && npm test && npm run typecheck
 cd apps/api && python3 -m pytest
