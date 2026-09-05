@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     vlr_stats_region: str = "americas"
     vlr_stats_timespan: str = "90"
     vlr_player_timespan: str = "90d"
+    vct_sync_enabled: bool = False
+    vct_sync_token: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

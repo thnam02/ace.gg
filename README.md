@@ -57,7 +57,15 @@ cd apps/api && python3 -m pytest
 docker compose up --build
 ```
 
-Postgres is bound to `127.0.0.1` only. Daily VCT ingest is opt-in (`--profile sync`) and needs a reachable VLRGGAPI — leave it off until that exists.
+Postgres is bound to `127.0.0.1` only.
+
+Daily VCT ingest scrapes new maps, then **refreshes frozen CIR snapshots** (season + event). It does **not** retrain CIR. It needs a reachable [vlrggapi](https://github.com/axsddlr/vlrggapi) (`/v2/match/details`, `/v2/event/{id}`).
+
+- Local compose worker: `docker compose --profile sync up -d vct-sync` after `VLRGGAPI_BASE_URL` is set
+- API in-process cron: `VCT_SYNC_ENABLED=true` (default `VCT_SYNC_CRON=0 3 * * *` UTC)
+- GitHub Action: `POST /ops/vct-sync` with `X-Sync-Token` (repo secrets `ACEGG_API_URL`, `VCT_SYNC_TOKEN`)
+
+Leave `VCT_SYNC_ENABLED=false` and `VCT_SYNC_TOKEN` empty until vlrggapi exists. An empty token hides `/ops/vct-sync` (404).
 
 ## Production
 

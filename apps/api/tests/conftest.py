@@ -17,6 +17,7 @@ os.environ.setdefault(
     "postgresql://valorant:valorant@127.0.0.1:5432/valorant_scout_test",
 )
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ["VCT_SYNC_ENABLED"] = "false"
 
 from app.db import get_db  # noqa: E402
 from app.main import app  # noqa: E402

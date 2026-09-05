@@ -8,6 +8,20 @@ from app.config import settings
 from app.rate_limit import client_ip, reset_rate_limiter
 
 
+def test_ops_vct_sync_is_exempt_from_rate_limit(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "rate_limit_per_minute", 1)
+    monkeypatch.setattr(settings, "vct_sync_token", "")
+    reset_rate_limiter()
+
+    first = client.post("/ops/vct-sync")
+    second = client.post("/ops/vct-sync")
+    assert first.status_code == 404
+    assert second.status_code == 404
+
+
 def test_health_is_exempt_from_rate_limit(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

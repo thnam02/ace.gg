@@ -20,7 +20,7 @@ Vercel production tracks **`main`**. Merge `nam/dev` before a production web dep
 
 ## Rate limits
 
-In-memory sliding window, 60 seconds. `/health` is exempt.
+In-memory sliding window, 60 seconds. `/health` and `/ops/vct-sync` are exempt.
 
 | Path | Cap (per minute) |
 |---|---|
@@ -54,8 +54,22 @@ RATE_LIMIT_COMPARE_PER_MINUTE=20
 | `API_HOST` | `0.0.0.0` |
 | `API_PORT` | `8000` (container port; not part of the hostname) |
 | `RATE_LIMIT_ENABLED` | `true` |
+| `VLRGGAPI_BASE_URL` | Reachable [vlrggapi](https://github.com/axsddlr/vlrggapi) origin (Railway private URL is fine). Required for daily ingest. |
+| `VCT_SYNC_TOKEN` | Long random token for `GET`/`POST /ops/vct-sync`. Empty = endpoint 404. |
+| `VCT_SYNC_ENABLED` | `true` to run ingest inside the API process at `VCT_SYNC_CRON` (default 03:00 UTC). `false` if you only use the GitHub Action. |
+| `VCT_SYNC_SEASON_YEAR` | `2026` |
+| `VLR_CIRCUIT_URL` | `https://www.vlr.gg/vct` (VCT circuit only, not Challengers) |
 
-Do not put `NEXT_PUBLIC_*`, local `POSTGRES_*`, or VLR/VCT sync vars on the API service.
+Do not put `NEXT_PUBLIC_*` or local `POSTGRES_*` on the API service.
+
+Daily ingest **refreshes** frozen CIR v0.2 snapshots (season + event). It does **not** retrain. `/ops/vct-sync` is exempt from the IP rate limit so GitHub Actions can trigger it; keep the token secret.
+
+GitHub repo secrets for `.github/workflows/daily-vct-sync.yml`:
+
+```text
+ACEGG_API_URL=https://acegg-production.up.railway.app
+VCT_SYNC_TOKEN=<same value as Railway>
+```
 
 CORS also allows `https://*.vercel.app` so preview deployments can call the API. Compare in production still goes through `/scout-api` (same-origin), so CORS is backup for direct API calls.
 
@@ -134,6 +148,9 @@ Same dump, different host. Copy `deploy/env.production.example` to `.env` next t
 | `POSTGRES_PASSWORD` | Must match the password inside `DATABASE_URL` |
 | `DOCS_ENABLED` | `false` |
 | `RATE_LIMIT_PER_MINUTE` | API cap per IP (compare uses `RATE_LIMIT_COMPARE_PER_MINUTE`) |
+| `VLRGGAPI_BASE_URL` | Self-hosted vlrggapi origin |
+| `VCT_SYNC_TOKEN` | Protects `/ops/vct-sync` |
+| `VCT_SYNC_ENABLED` | In-process daily cron; optional if using GitHub Action |
 
 `docker-compose.yml` sets `API_URL=http://api:8000` for server-side fetches. Do not point that at localhost. Postgres publishes `127.0.0.1:5432` only.
 
@@ -144,11 +161,13 @@ docker compose up -d --build api web
 API_URL=http://127.0.0.1:8000 WEB_URL=http://127.0.0.1:3000 ./deploy/smoke-check.sh
 ```
 
-Do not start `vct-sync` until VLRGGAPI is reachable:
+Do not start ingest until vlrggapi is reachable. Either:
 
 ```bash
 docker compose --profile sync up -d vct-sync
 ```
+
+or set `VCT_SYNC_ENABLED=true` on `api` (and `VLRGGAPI_BASE_URL` / `VCT_SYNC_TOKEN`).
 
 ## Do not
 

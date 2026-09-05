@@ -10,7 +10,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
 
-_EXEMPT_PATHS = frozenset({"/health"})
+_EXEMPT_PATHS = frozenset({"/health", "/ops/vct-sync"})
 _WINDOW_SECONDS = 60.0
 
 
