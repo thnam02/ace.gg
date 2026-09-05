@@ -8,8 +8,5 @@
     "dev": "npm run dev --prefix apps/web",
     "build": "npm run build --prefix apps/web",
     "lint": "npm run lint --prefix apps/web"
-  },
-  "dependencies": {
-    "@tailwindcss/oxide-win32-x64-msvc": "^4.3.3"
   }
 }
