@@ -17,6 +17,17 @@ class CirReliability(BaseModel):
     pct: float | None = None
 
 
+class RankingScope(BaseModel):
+    type: str
+    label: str
+    event_id: str | None = None
+    vlr_event_id: int | None = None
+    tier: str | None = None
+    region: str | None = None
+    status: str | None = None
+    season_year: int | None = None
+
+
 class CirRankingPlayer(BaseModel):
     rank: int
     player_id: str
@@ -32,11 +43,25 @@ class CirRankingPlayer(BaseModel):
     reliability_pct: float | None = None
     rounds: int = 0
     maps: int = 0
+    matches: int | None = None
     kpr: float | None = None
     dpr: float | None = None
+    acs: float | None = None
+    adr: float | None = None
+    kd: float | None = None
+    hs_pct: float | None = None
+    apr: float | None = None
+    kast: float | None = None
+    opening_frequency: float | None = None
+    opening_efficiency: float | None = None
+    fk_per_round: float | None = None
+    fd_per_round: float | None = None
+    win_rate: float | None = None
+    clutch: float | None = None
     sample_status: str | None = None
     metric_version: str
     metric_version_id: str
+    rank_label: str | None = None
 
 
 class CirRankingResponse(BaseModel):
@@ -47,6 +72,14 @@ class CirRankingResponse(BaseModel):
     limit: int
     offset: int
     players: list[CirRankingPlayer] = Field(default_factory=list)
+    scope: RankingScope | str = "season"
+    event_id: str | None = None
+    vlr_event_id: int | None = None
+    event_name: str | None = None
+    event_region: str | None = None
+    event_tier: str | None = None
+    event_status: str | None = None
+    note: str | None = None
 
 
 class PlayerOption(BaseModel):
@@ -78,6 +111,8 @@ class CirPlayerDetail(BaseModel):
     tier: str | None = None
     rank: int | None = None
     established_count: int = 0
+    event_rank: int | None = None
+    event_player_count: int | None = None
     cir: float | None = None
     raw_cir: float | None = None
     shrunk_raw_cir: float | None = None
@@ -86,6 +121,7 @@ class CirPlayerDetail(BaseModel):
     sample_status: str | None = None
     rounds: int = 0
     maps: int = 0
+    matches: int | None = None
     events: int = 0
     combat_factor: float | None = None
     kpr: float | None = None
@@ -95,11 +131,25 @@ class CirPlayerDetail(BaseModel):
     kpr_residual: float | None = None
     negative_dpr_residual: float | None = None
     sample_weight: float | None = None
+    acs: float | None = None
+    adr: float | None = None
+    kd: float | None = None
+    hs_pct: float | None = None
+    apr: float | None = None
+    kast: float | None = None
+    opening_frequency: float | None = None
+    opening_efficiency: float | None = None
+    fk_per_round: float | None = None
+    fd_per_round: float | None = None
+    win_rate: float | None = None
+    clutch: float | None = None
     metric_version: str
     metric_version_id: str
     reference_period_start: str | None = None
     reference_period_end: str | None = None
     interpretation: str | None = None
+    scope: RankingScope | None = None
+    note: str | None = None
 
 
 class CirCompareEntry(BaseModel):

@@ -5,10 +5,14 @@ import { CirPercentileBar } from "@/components/cir-percentile-bar";
 import { PlayerRoleMix } from "@/components/player/player-role-mix";
 import { formatCir, formatRounds } from "@/lib/format";
 import {
+  EVENT_CIR_TOOLTIP,
+  EVENT_SCOPE_NOTE,
   METRIC_VERSION_TOOLTIP,
   cirInterpretation,
   cirRankLine,
   contextBenchmark,
+  eventRankHeadline,
+  eventRankLine,
   metricVersionLabel,
   rankHeadline,
 } from "@/lib/player-cir-copy";
@@ -17,21 +21,29 @@ import type { CirPlayerDetail, PlayerIdentity } from "@/lib/types";
 type PlayerHeroCardProps = {
   player: PlayerIdentity;
   cir: CirPlayerDetail | null;
+  eventId?: string | null;
 };
 
-export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
+export function PlayerHeroCard({ player, cir, eventId = null }: PlayerHeroCardProps) {
+  const eventMode = eventId != null;
   const cirValue = cir?.cir ?? null;
-  const rankDisplay = rankHeadline(cir?.rank, cir?.established_count);
-  const rankCaption = cirRankLine(cir?.rank, cir?.established_count, cir?.sample_status);
+  const eventLabel = cir?.scope?.label ?? cir?.note ?? null;
+  const rankDisplay = eventMode
+    ? eventRankHeadline(cir?.event_rank, cir?.event_player_count)
+    : rankHeadline(cir?.rank, cir?.established_count);
+  const rankCaption = eventMode
+    ? eventRankLine(cir?.event_rank, cir?.event_player_count)
+    : cirRankLine(cir?.rank, cir?.established_count, cir?.sample_status);
   const benchmark = contextBenchmark(cir?.tier, cir?.role);
   const versionLabel = metricVersionLabel(cir?.metric_version);
+  const cirTooltip = eventMode ? EVENT_CIR_TOOLTIP : METRIC_VERSION_TOOLTIP;
 
   return (
     <article className="min-w-0 rounded-xl border border-white/10 bg-card p-4 sm:p-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Player dossier
+            {eventMode ? "Event dossier" : "Player dossier"}
           </p>
           <h1 className="mt-1 text-balance text-2xl font-semibold tracking-tight">
             {player.handle}
@@ -41,15 +53,28 @@ export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
             {" · "}
             <PlayerRoleMix role={cir?.role} roles={cir?.roles} />
           </p>
+          {eventMode && eventLabel ? (
+            <p className="mt-2 text-sm font-medium text-foreground">{eventLabel}</p>
+          ) : null}
         </div>
-        <Link
-          href={`/compare?ids=${encodeURIComponent(player.id)}`}
-          aria-label={`Compare ${player.handle}`}
-          className="inline-flex shrink-0 items-center gap-1 self-start rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors duration-200 hover:bg-accent/20"
-        >
-          <ArrowsLeftRightIcon className="size-3.5" aria-hidden="true" />
-          Compare player
-        </Link>
+        <div className="flex flex-wrap items-center gap-2 self-start">
+          {eventMode ? (
+            <Link
+              href={`/players/${encodeURIComponent(player.id)}`}
+              className="inline-flex shrink-0 items-center rounded-md border border-white/10 bg-muted/60 px-2.5 py-1 text-xs font-semibold text-foreground transition-colors duration-200 hover:bg-muted"
+            >
+              View 2026 overall
+            </Link>
+          ) : null}
+          <Link
+            href={`/compare?ids=${encodeURIComponent(player.id)}`}
+            aria-label={`Compare ${player.handle}`}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-accent/40 bg-accent/10 px-2.5 py-1 text-xs font-semibold text-accent transition-colors duration-200 hover:bg-accent/20"
+          >
+            <ArrowsLeftRightIcon className="size-3.5" aria-hidden="true" />
+            Compare player
+          </Link>
+        </div>
       </header>
 
       <div className="mt-6 grid gap-6 md:grid-cols-5">
@@ -70,11 +95,14 @@ export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
                 className="mt-1 font-mono text-5xl font-semibold tabular-nums leading-none text-accent"
                 aria-labelledby="cir-heading"
                 aria-label={`CIR ${formatCir(cirValue)}`}
+                title={cirTooltip}
               >
                 {formatCir(cirValue)}
               </p>
-              <p className="mt-3 text-sm text-muted-foreground">{cirInterpretation(cirValue)}</p>
-              <CirPercentileBar cir={cirValue} className="mt-4 max-w-lg" />
+              <p className="mt-3 text-sm text-muted-foreground" title={cirTooltip}>
+                {eventMode ? EVENT_SCOPE_NOTE : cirInterpretation(cirValue)}
+              </p>
+              {!eventMode ? <CirPercentileBar cir={cirValue} className="mt-4 max-w-lg" /> : null}
             </>
           )}
           {benchmark ? <p className="mt-4 text-sm text-foreground">{benchmark}</p> : null}
@@ -82,7 +110,9 @@ export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
 
         <div className="flex min-w-0 flex-col justify-between gap-4 md:col-span-2">
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Rank</p>
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              {eventMode ? "Event rank" : "Rank"}
+            </p>
             <p className="mt-1 font-mono text-3xl font-semibold tabular-nums leading-none">
               {rankDisplay.rank}
             </p>
@@ -97,7 +127,7 @@ export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
               <span className="font-mono tabular-nums text-foreground">
                 {cir ? formatRounds(cir.rounds) : "N/A"}
               </span>{" "}
-              rounds
+              {eventMode ? "event rounds" : "rounds"}
               {cir?.sample_status ? (
                 <>
                   {" · "}
@@ -105,8 +135,8 @@ export function PlayerHeroCard({ player, cir }: PlayerHeroCardProps) {
                 </>
               ) : null}
             </p>
-            <p className="text-xs text-muted-foreground" title={METRIC_VERSION_TOOLTIP}>
-              {versionLabel}
+            <p className="text-xs text-muted-foreground" title={cirTooltip}>
+              {eventMode ? EVENT_SCOPE_NOTE : versionLabel}
             </p>
           </div>
         </div>

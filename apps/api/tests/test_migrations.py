@@ -22,6 +22,8 @@ EXPECTED_TABLES = {
     "team_rating_snapshots",
     "metric_versions",
     "player_metric_snapshots",
+    "player_metric_scoped_snapshots",
+    "data_sync_runs",
 }
 
 MIGRATION_DATABASE_URL = os.environ.get(
@@ -35,7 +37,8 @@ def _recreate_database(database_url: str) -> None:
     db_name = url.database
     owner = url.username or "valorant"
     assert db_name is not None
-    admin_engine = create_engine("postgresql:///postgres", isolation_level="AUTOCOMMIT")
+    admin_url = url.set(database="postgres")
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
     with admin_engine.connect() as connection:
         connection.execute(
             text("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = :name"),

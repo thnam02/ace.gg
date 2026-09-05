@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_RANKING_FILTERS,
   applyRankingExplore,
+  buildRankingSearchParams,
   defaultOrderForSort,
   parseRankingExploreSession,
+  parseRankingSearchParams,
   rankingFiltersActive,
   rankingFiltersEqual,
+  rankingHref,
   serializeRankingExploreSession,
 } from "@/lib/ranking-filters";
 import type { CirRankingPlayer } from "@/lib/types";
@@ -33,6 +36,11 @@ function player(
     maps: overrides.maps ?? 20,
     kpr: overrides.kpr ?? 0.8,
     dpr: overrides.dpr ?? 0.6,
+    acs: overrides.acs ?? 220,
+    adr: overrides.adr ?? 140,
+    kast: overrides.kast ?? 70,
+    opening_efficiency: overrides.opening_efficiency ?? 0.55,
+    opening_frequency: overrides.opening_frequency ?? 0.2,
     sample_status: "ESTABLISHED",
     metric_version: "v0.2-real-2026",
     ...overrides,
@@ -50,6 +58,7 @@ describe("ranking explore filters", () => {
       role: "Duelist",
       tier: "T1",
       region: "Americas",
+      acs: 250,
     }),
     player({
       rank: 2,
@@ -60,6 +69,8 @@ describe("ranking explore filters", () => {
       role: "Controller",
       tier: "T1",
       region: "EMEA",
+      acs: 200,
+      rounds: 80,
     }),
     player({
       rank: 3,
@@ -71,6 +82,7 @@ describe("ranking explore filters", () => {
       tier: "T2",
       region: "Pacific",
       rounds: 220,
+      acs: 230,
     }),
   ];
 
@@ -102,6 +114,23 @@ describe("ranking explore filters", () => {
     expect(byDpr.map((item) => item.handle)).toEqual(["TenZ", "Boaster", "something"]);
   });
 
+  it("sorts by event-capable scouting keys", () => {
+    const byAcs = applyRankingExplore(pool, {
+      ...DEFAULT_RANKING_FILTERS,
+      sort: "acs",
+      order: "desc",
+    });
+    expect(byAcs.map((item) => item.handle)).toEqual(["TenZ", "something", "Boaster"]);
+  });
+
+  it("filters by minimum rounds", () => {
+    const filtered = applyRankingExplore(pool, {
+      ...DEFAULT_RANKING_FILTERS,
+      minRounds: 100,
+    });
+    expect(filtered.map((item) => item.handle)).toEqual(["TenZ", "something"]);
+  });
+
   it("treats search together with category filters", () => {
     const filtered = applyRankingExplore(pool, {
       ...DEFAULT_RANKING_FILTERS,
@@ -123,6 +152,15 @@ describe("ranking explore filters", () => {
     expect(
       rankingFiltersActive({ ...DEFAULT_RANKING_FILTERS, region: "China" }),
     ).toBe(true);
+    expect(
+      rankingFiltersActive({ ...DEFAULT_RANKING_FILTERS, minRounds: 250 }),
+    ).toBe(true);
+    expect(
+      rankingFiltersActive({
+        ...DEFAULT_RANKING_FILTERS,
+        eventId: "11111111-1111-4111-8111-111111111111",
+      }),
+    ).toBe(true);
   });
 
   it("round-trips applied explore state so returning from a player keeps filters", () => {
@@ -137,5 +175,57 @@ describe("ranking explore filters", () => {
       true,
     );
     expect(parseRankingExploreSession("not-json")).toBeNull();
+  });
+
+  it("parses and serializes ranking URL state", () => {
+    const eventId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const parsed = parseRankingSearchParams({
+      tier: "T1",
+      region: "Pacific",
+      event: eventId,
+      sort: "cir",
+      min_rounds: "50",
+      role: "Duelist",
+      order: "asc",
+    });
+    expect(parsed.filters).toEqual({
+      query: "",
+      tier: "T1",
+      region: "Pacific",
+      eventId,
+      role: "Duelist",
+      sort: "cir",
+      order: "asc",
+      minRounds: 50,
+    });
+    expect(parsed.includeProvisional).toBe(true);
+
+    const params = buildRankingSearchParams(parsed.filters);
+    expect(params.get("tier")).toBe("T1");
+    expect(params.get("region")).toBe("Pacific");
+    expect(params.get("event")).toBe(eventId);
+    expect(params.get("role")).toBe("Duelist");
+    expect(params.get("min_rounds")).toBe("50");
+    expect(params.get("order")).toBe("asc");
+    expect(params.get("sort")).toBeNull();
+    expect(rankingHref(DEFAULT_RANKING_FILTERS)).toBe("/rankings");
+  });
+
+  it("does not re-filter tier or region inside an event scope", () => {
+    const filtered = applyRankingExplore(pool, {
+      ...DEFAULT_RANKING_FILTERS,
+      eventId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+      tier: "T1",
+      region: "Pacific",
+    });
+    expect(filtered.map((item) => item.handle)).toEqual(["TenZ", "Boaster", "something"]);
+  });
+
+  it("defaults min rounds to All and ignores invalid event ids", () => {
+    const parsed = parseRankingSearchParams({ sort: "acs", event: "not-a-uuid" });
+    expect(parsed.filters.minRounds).toBeNull();
+    expect(parsed.filters.eventId).toBeNull();
+    expect(parsed.filters.sort).toBe("acs");
+    expect(parsed.includeProvisional).toBe(false);
   });
 });

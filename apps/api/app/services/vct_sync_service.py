@@ -317,6 +317,44 @@ class VctDailySyncService:
             players_seen.update(player.player_id for player in players)
         report.players_affected = len(players_seen)
         report.retrained_cir = False
+        self._refresh_event_scoped_snapshots(report)
+
+    def _refresh_event_scoped_snapshots(self, report: VctSyncReport) -> None:
+        """Refresh EVENT scoped CIR for events touched by this sync. Does not retrain."""
+        from app.services.event_cir_snapshot_service import EventCirSnapshotService
+
+        changed_vlr_ids = {
+            item.vlr_event_id
+            for item in report.events
+            if item.action in {"ingest", "metadata"} or item.matches_ingested > 0
+        }
+        if not changed_vlr_ids:
+            # Still refresh ongoing events so partial daily maps update CIR.
+            changed_vlr_ids = {
+                item.vlr_event_id
+                for item in report.events
+                if (item.status or "").upper() == EventStatus.ONGOING.value
+            }
+        if not changed_vlr_ids:
+            return
+        events = list(
+            self._session.scalars(
+                select(Event).where(Event.vlr_event_id.in_(changed_vlr_ids))
+            ).all()
+        )
+        if not events:
+            return
+        try:
+            result = EventCirSnapshotService(self._session).refresh_events(
+                events,
+                version=CIR_V02_VERSION,
+            )
+        except ValueError as exc:
+            report.errors.append(str(exc))
+            return
+        for error in result.errors or []:
+            report.errors.append(error)
+        report.cir_snapshots_refreshed += result.snapshots_upserted
 
     def _finalize(
         self,

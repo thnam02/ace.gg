@@ -58,9 +58,15 @@ def load_eligible_player_map_stats(
     *,
     stats_service: StatsEngineService | None = None,
     require_complete_maps: bool = True,
+    event_id: UUID | None = None,
+    vlr_event_id: int | None = None,
 ) -> list[PlayerMapStats]:
     service = stats_service or StatsEngineService(session)
-    all_stats = service.load_player_map_stats(None)
+    all_stats = service.load_player_map_stats(
+        None,
+        event_id=event_id,
+        vlr_event_id=vlr_event_id,
+    )
     if require_complete_maps:
         completeness = summarize_map_completeness(session)
         all_stats = filter_stats_to_complete_maps(all_stats, completeness.complete_map_ids)
@@ -135,6 +141,31 @@ class CirSnapshotService:
 
     def score_players(self, frozen: FrozenCirV02) -> list[CirPlayerScore]:
         maps = self.score_maps(frozen)
+        return aggregate_player_scores(
+            maps,
+            reference_mean=frozen.reference_mean,
+            reference_population=frozen.reference_population,
+            shrinkage_k=frozen.shrinkage_k,
+        )
+
+    def score_players_for_event(
+        self,
+        frozen: FrozenCirV02,
+        *,
+        event_id: UUID | None = None,
+        vlr_event_id: int | None = None,
+    ) -> list[CirPlayerScore]:
+        """Score one event with frozen weights. Does not write season snapshots."""
+        if event_id is None and vlr_event_id is None:
+            raise ValueError("event_id or vlr_event_id is required")
+        stats = load_eligible_player_map_stats(
+            self._session,
+            stats_service=self._stats_service,
+            require_complete_maps=self._require_complete_maps,
+            event_id=event_id,
+            vlr_event_id=vlr_event_id,
+        )
+        maps = score_stats_with_frozen(stats, frozen)
         return aggregate_player_scores(
             maps,
             reference_mean=frozen.reference_mean,

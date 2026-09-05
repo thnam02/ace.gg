@@ -7,7 +7,21 @@ import { fetchPlayerCir, fetchPlayerDetail } from "@/lib/api";
 
 type PlayerPageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ event?: string | string[] }>;
 };
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
 
 export async function generateMetadata({ params }: PlayerPageProps): Promise<Metadata> {
   const { id } = await params;
@@ -17,12 +31,19 @@ export async function generateMetadata({ params }: PlayerPageProps): Promise<Met
   };
 }
 
-export default async function PlayerPage({ params }: PlayerPageProps) {
+export default async function PlayerPage({ params, searchParams }: PlayerPageProps) {
   const { id } = await params;
+  const query = await searchParams;
+  const eventRaw = firstParam(query.event);
+  const eventId = eventRaw && isUuid(eventRaw) ? eventRaw : null;
+
   let detail;
   let cir;
   try {
-    [detail, cir] = await Promise.all([fetchPlayerDetail(id), fetchPlayerCir(id)]);
+    [detail, cir] = await Promise.all([
+      fetchPlayerDetail(id, { eventId }),
+      fetchPlayerCir(id, { eventId }),
+    ]);
   } catch {
     return (
       <AlertBanner title="Could not load this player.">
@@ -47,5 +68,5 @@ export default async function PlayerPage({ params }: PlayerPageProps) {
     );
   }
 
-  return <PlayerDossier detail={detail} cir={cir} />;
+  return <PlayerDossier detail={detail} cir={cir} eventId={eventId} />;
 }

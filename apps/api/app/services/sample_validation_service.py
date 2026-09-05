@@ -215,6 +215,6 @@ def _values_match(source_value: object | None, db_value: object | None) -> bool:
         return True
     if db_value is None:
         return False
-    if isinstance(source_value, (int, float)) and isinstance(db_value, (int, float)):
+    if isinstance(source_value, int | float) and isinstance(db_value, int | float):
         return abs(float(source_value) - float(db_value)) <= _FLOAT_TOLERANCE
     return source_value == db_value

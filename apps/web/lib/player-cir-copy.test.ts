@@ -7,6 +7,8 @@ import {
   clampPercentile,
   contextBenchmark,
   deathAvoidanceExpectation,
+  eventRankHeadline,
+  eventRankLine,
   expectationLabel,
   formatClutchStat,
   kprExpectation,
@@ -64,6 +66,12 @@ describe("CIR hero copy", () => {
       "Not in established ranking",
     );
     expect(rankHeadline(null, 343)).toEqual({ rank: "Not ranked", of: null });
+  });
+
+  it("renders event rank copy", () => {
+    expect(eventRankHeadline(4, 80)).toEqual({ rank: "#4 / 80", of: null });
+    expect(eventRankLine(4, 80)).toBe("Event rank #4 of 80");
+    expect(eventRankLine(null, 80)).toBe("Not ranked in this event");
   });
 });
 

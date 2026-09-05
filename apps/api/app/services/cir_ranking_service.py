@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select
@@ -21,13 +22,18 @@ from app.metrics.cir.ranking_explore import (
     pick_ranking_region,
     snapshot_event_ids,
 )
+from app.metrics.cir.reliability import reliability_pct as reliability_pct_for_rounds
 from app.metrics.cir.role_mix import build_role_mix
+from app.metrics.cir.scope import ScopeType, event_scope_id
 from app.models import (
     Agent,
     Event,
+    Match,
+    MatchMap,
     MetricVersion,
     Player,
     PlayerMapStats,
+    PlayerMetricScopedSnapshot,
     PlayerMetricSnapshot,
     PlayerTeamHistory,
     Team,
@@ -41,12 +47,48 @@ from app.schemas.cir_ranking import (
     CirRankingResponse,
     PlayerOption,
     PlayerOptionsResponse,
+    RankingScope,
 )
 from app.schemas.player_api import PlayerCompareCir, TeamRef
-from app.schemas.vct_circuit import CircuitName
+from app.schemas.vct_circuit import CircuitName, EventStatus
 from app.services.cir_snapshot_service import load_frozen_cir_v02, production_metric_version
 from app.services.player_query import PlayerNotFoundError, PlayerQueryService
 from app.services.vct_sync_service import latest_match_played_at, latest_sync_run
+
+_EVENT_CIR_NOTE = (
+    "Stats shown are calculated from this event only. "
+    "CIR uses the frozen v0.2 reference population."
+)
+_NO_MAPS_NOTE = "No completed maps yet."
+_SNAPSHOTS_NOT_READY_NOTE = (
+    "Event CIR snapshots are not ready. "
+    "Run backfill_event_cir_snapshots before querying this event."
+)
+_EVENT_RANK_LABEL = "Event rank"
+
+# Older clients used scope="season"; RankingScope is required by the new schema.
+_GLOBAL_SCOPE = RankingScope(type="GLOBAL_2026", label="2026 CIR", season_year=2026)
+
+_SORTABLE_FIELDS = frozenset(
+    {
+        "cir",
+        "rounds",
+        "maps",
+        "kpr",
+        "dpr",
+        "acs",
+        "adr",
+        "kast",
+        "opening_efficiency",
+        "opening_frequency",
+        "kd",
+        "apr",
+        "win_rate",
+        "fk_per_round",
+        "fd_per_round",
+        "hs_pct",
+    }
+)
 
 
 class CirRankingService:
@@ -97,6 +139,9 @@ class CirRankingService:
         include_provisional: bool = False,
         include_low_sample: bool = False,
         sample_status: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        search: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> CirRankingResponse:
@@ -124,13 +169,13 @@ class CirRankingService:
             for snapshot, player, team_row in rows
             if _matches_details(snapshot, role=role, tier=tier, agent=agent, event=event)
         ]
-        filtered.sort(
-            key=lambda item: (
-                -(item[0].cir or 0.0),
-                -item[0].rounds,
-                item[1].handle.lower(),
-            )
-        )
+        if search:
+            filtered = [
+                (snapshot, player, team_row)
+                for snapshot, player, team_row in filtered
+                if _matches_player_search(player, team_row, search)
+            ]
+        filtered.sort(key=_season_row_sort_key(sort=sort, order=order))
         total = len(filtered)
         page = filtered[offset : offset + limit]
         event_regions = self._event_region_lookup(page)
@@ -155,9 +200,239 @@ class CirRankingService:
             limit=limit,
             offset=offset,
             players=players,
+            scope=_GLOBAL_SCOPE,
+            event_id=None,
+            vlr_event_id=None,
+            event_name=None,
+            event_region=None,
+            event_tier=None,
+            event_status=None,
         )
 
-    def player_cir(self, player_ref: str, *, metric_version: str | None = None) -> CirPlayerDetail:
+    def list_event_rankings_by_id(
+        self,
+        event_id: str,
+        *,
+        role: str | None = None,
+        tier: str | None = None,
+        region: str | None = None,
+        min_rounds: int | None = None,
+        include_provisional: bool = True,
+        include_low_sample: bool = True,
+        sample_status: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        search: str | None = None,
+        metric_version: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> CirRankingResponse:
+        event_uuid = _as_uuid(event_id)
+        if event_uuid is None:
+            raise ValueError(f"Event {event_id} not found")
+        event = self._session.get(Event, event_uuid)
+        if event is None:
+            raise ValueError(f"Event {event_id} not found")
+        return self._list_event_rankings_for_event(
+            event,
+            role=role,
+            tier=tier,
+            region=region,
+            min_rounds=min_rounds,
+            include_provisional=include_provisional,
+            include_low_sample=include_low_sample,
+            sample_status=sample_status,
+            sort=sort,
+            order=order,
+            search=search,
+            metric_version=metric_version,
+            limit=limit,
+            offset=offset,
+        )
+
+    def list_event_rankings(
+        self,
+        *,
+        vlr_event_id: int,
+        role: str | None = None,
+        tier: str | None = None,
+        region: str | None = None,
+        min_rounds: int | None = None,
+        include_provisional: bool = True,
+        include_low_sample: bool = True,
+        sample_status: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        search: str | None = None,
+        metric_version: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> CirRankingResponse:
+        event = self._session.scalar(select(Event).where(Event.vlr_event_id == vlr_event_id))
+        if event is None:
+            raise ValueError(f"Event {vlr_event_id} not found")
+        return self._list_event_rankings_for_event(
+            event,
+            role=role,
+            tier=tier,
+            region=region,
+            min_rounds=min_rounds,
+            include_provisional=include_provisional,
+            include_low_sample=include_low_sample,
+            sample_status=sample_status,
+            sort=sort,
+            order=order,
+            search=search,
+            metric_version=metric_version,
+            limit=limit,
+            offset=offset,
+        )
+
+    def _list_event_rankings_for_event(
+        self,
+        event: Event,
+        *,
+        role: str | None = None,
+        tier: str | None = None,
+        region: str | None = None,
+        min_rounds: int | None = None,
+        include_provisional: bool = True,
+        include_low_sample: bool = True,
+        sample_status: str | None = None,
+        sort: str | None = None,
+        order: str | None = None,
+        search: str | None = None,
+        metric_version: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> CirRankingResponse:
+        event_region = event_ranking_region(region=event.region, name=event.name)
+        scope = _event_ranking_scope(event, event_region=event_region)
+
+        frozen = load_frozen_cir_v02(
+            self._session,
+            version=metric_version or CIR_V02_VERSION,
+        )
+        if frozen is None:
+            raise ValueError("No frozen CIR MetricVersion is available")
+        version = frozen.metric_version
+
+        if (event.status or "").upper() == EventStatus.UPCOMING.value:
+            return CirRankingResponse(
+                metric_name=version.name,
+                metric_version=version.version,
+                metric_version_id=str(version.id),
+                total=0,
+                limit=limit,
+                offset=offset,
+                players=[],
+                scope=scope,
+                event_id=str(event.id),
+                vlr_event_id=event.vlr_event_id,
+                event_name=event.name,
+                event_region=event_region,
+                event_tier=event.tier,
+                event_status=event.status,
+                note=_NO_MAPS_NOTE,
+            )
+
+        scoped_rows = self._load_event_scoped_rows(version.id, event.id)
+        if not scoped_rows:
+            return CirRankingResponse(
+                metric_name=version.name,
+                metric_version=version.version,
+                metric_version_id=str(version.id),
+                total=0,
+                limit=limit,
+                offset=offset,
+                players=[],
+                scope=scope,
+                event_id=str(event.id),
+                vlr_event_id=event.vlr_event_id,
+                event_name=event.name,
+                event_region=event_region,
+                event_tier=event.tier,
+                event_status=event.status,
+                note=_SNAPSHOTS_NOT_READY_NOTE,
+            )
+
+        player_ids = [player.id for _snapshot, player, _team in scoped_rows]
+        role_counts = self._role_counts_lookup(player_ids, event_id=event.id)
+        candidates = [
+            _to_scoped_ranking_player(
+                rank=0,
+                snapshot=snapshot,
+                player=player,
+                team=team_row,
+                version=version,
+                event_region=event_region,
+                role_counts=role_counts.get(player.id, {}),
+            )
+            for snapshot, player, team_row in scoped_rows
+        ]
+
+        statuses = set(
+            _allowed_statuses(
+                include_provisional=include_provisional,
+                include_low_sample=include_low_sample,
+                sample_status=sample_status,
+            )
+        )
+        role_needle = role.lower() if role else None
+        tier_needle = tier.lower() if tier else None
+        region_needle = region.lower() if region else None
+
+        filtered = [
+            player
+            for player in candidates
+            if (player.sample_status in statuses)
+            and (role_needle is None or (player.role or "").lower() == role_needle)
+            and (tier_needle is None or (player.tier or "").lower() == tier_needle)
+            and (min_rounds is None or player.rounds >= min_rounds)
+            and (
+                region_needle is None
+                or (player.region or "").lower() == region_needle
+            )
+            and (search is None or _matches_ranking_player_search(player, search))
+        ]
+        filtered.sort(key=_ranking_player_sort_key(sort=sort, order=order))
+        total = len(filtered)
+        page = filtered[offset : offset + limit]
+        players = [
+            player.model_copy(update={"rank": offset + index + 1})
+            for index, player in enumerate(page)
+        ]
+        return CirRankingResponse(
+            metric_name=version.name,
+            metric_version=version.version,
+            metric_version_id=str(version.id),
+            total=total,
+            limit=limit,
+            offset=offset,
+            players=players,
+            scope=scope,
+            event_id=str(event.id),
+            vlr_event_id=event.vlr_event_id,
+            event_name=event.name,
+            event_region=event_region,
+            event_tier=event.tier,
+            event_status=event.status,
+            note=_EVENT_CIR_NOTE,
+        )
+
+    def player_cir(
+        self,
+        player_ref: str,
+        *,
+        metric_version: str | None = None,
+        event_id: str | None = None,
+    ) -> CirPlayerDetail:
+        if event_id:
+            return self._player_cir_for_event(
+                player_ref,
+                event_id=event_id,
+                metric_version=metric_version,
+            )
         player = self._players._require_player(player_ref)
         version = self.resolve_metric_version(metric_version=metric_version)
         snapshot = self._session.scalar(
@@ -206,6 +481,116 @@ class CirRankingService:
             ),
             reference_period_end=version.training_end.isoformat() if version.training_end else None,
             interpretation=PUBLIC_INTERPRETATION,
+        )
+
+    def _player_cir_for_event(
+        self,
+        player_ref: str,
+        *,
+        event_id: str,
+        metric_version: str | None = None,
+    ) -> CirPlayerDetail:
+        player = self._players._require_player(player_ref)
+        event_uuid = _as_uuid(event_id)
+        if event_uuid is None:
+            raise ValueError(f"Event {event_id} not found")
+        event = self._session.get(Event, event_uuid)
+        if event is None:
+            raise ValueError(f"Event {event_id} not found")
+
+        frozen = load_frozen_cir_v02(
+            self._session,
+            version=metric_version or CIR_V02_VERSION,
+        )
+        if frozen is None:
+            raise ValueError("No frozen CIR MetricVersion is available")
+        version = frozen.metric_version
+        event_region = event_ranking_region(region=event.region, name=event.name)
+        scope = _event_ranking_scope(event, event_region=event_region)
+
+        if (event.status or "").upper() == EventStatus.UPCOMING.value:
+            raise PlayerNotFoundError(player_ref)
+
+        scoped_rows = self._load_event_scoped_rows(version.id, event.id)
+        if not scoped_rows:
+            raise ValueError(_SNAPSHOTS_NOT_READY_NOTE)
+
+        ranked = sorted(
+            scoped_rows,
+            key=lambda item: (
+                -(item[0].cir_percentile or 0.0),
+                -item[0].rounds,
+                item[1].handle.lower(),
+            ),
+        )
+        event_player_count = len(ranked)
+        player_row = next(
+            (
+                (index, snapshot, row_player, team_row)
+                for index, (snapshot, row_player, team_row) in enumerate(ranked)
+                if row_player.id == player.id
+            ),
+            None,
+        )
+        if player_row is None:
+            raise PlayerNotFoundError(player_ref)
+        event_rank, snapshot, _row_player, team_row = player_row
+        role_counts = self._role_counts_lookup(
+            [player.id],
+            event_id=event.id,
+        ).get(player.id, {})
+        identity_team = _team_ref(player, team_row)
+        cir_role = snapshot.role
+        return CirPlayerDetail(
+            player_id=str(player.id),
+            handle=player.handle,
+            team=identity_team,
+            role=cir_role,
+            roles=build_role_mix(role_counts, cir_role),
+            tier=snapshot.tier,
+            event_rank=event_rank + 1,
+            event_player_count=event_player_count,
+            cir=snapshot.cir_percentile,
+            raw_cir=snapshot.raw_cir,
+            shrunk_raw_cir=snapshot.shrunk_raw_cir,
+            reliability=snapshot.reliability,
+            reliability_pct=reliability_pct_for_rounds(snapshot.rounds),
+            sample_status=snapshot.sample_status,
+            rounds=snapshot.rounds,
+            maps=snapshot.maps,
+            matches=snapshot.matches,
+            events=1,
+            combat_factor=snapshot.combat_factor,
+            kpr=snapshot.kpr,
+            dpr=snapshot.dpr,
+            expected_kpr=snapshot.expected_kpr,
+            expected_dpr=snapshot.expected_dpr,
+            kpr_residual=snapshot.kpr_residual,
+            negative_dpr_residual=snapshot.negative_dpr_residual,
+            sample_weight=snapshot.sample_weight,
+            acs=snapshot.acs,
+            adr=snapshot.adr,
+            kd=snapshot.kd,
+            hs_pct=snapshot.hs_pct,
+            apr=snapshot.apr,
+            kast=snapshot.kast,
+            opening_frequency=snapshot.opening_frequency,
+            opening_efficiency=snapshot.opening_efficiency,
+            fk_per_round=snapshot.fk_per_round,
+            fd_per_round=snapshot.fd_per_round,
+            win_rate=snapshot.win_rate,
+            clutch=snapshot.clutch,
+            metric_version=version.version,
+            metric_version_id=str(version.id),
+            reference_period_start=(
+                version.training_start.isoformat() if version.training_start else None
+            ),
+            reference_period_end=(
+                version.training_end.isoformat() if version.training_end else None
+            ),
+            interpretation=PUBLIC_INTERPRETATION,
+            scope=scope,
+            note=_EVENT_CIR_NOTE,
         )
 
     def list_options(
@@ -403,6 +788,43 @@ class CirRankingService:
             .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
         )
 
+    def _scoped_base_query(
+        self, metric_version_id: UUID, scope_id: str
+    ) -> Select[tuple[PlayerMetricScopedSnapshot, Player, Team]]:
+        current_team = (
+            select(PlayerTeamHistory.team_id)
+            .where(PlayerTeamHistory.player_id == Player.id)
+            .order_by(
+                PlayerTeamHistory.is_current.desc(),
+                PlayerTeamHistory.joined_at.desc().nulls_last(),
+            )
+            .limit(1)
+            .scalar_subquery()
+        )
+        return (
+            select(PlayerMetricScopedSnapshot, Player, Team)
+            .join(Player, Player.id == PlayerMetricScopedSnapshot.player_id)
+            .outerjoin(Team, Team.id == current_team)
+            .where(
+                PlayerMetricScopedSnapshot.metric_version_id == metric_version_id,
+                PlayerMetricScopedSnapshot.scope_type == ScopeType.EVENT.value,
+                PlayerMetricScopedSnapshot.scope_id == scope_id,
+            )
+            .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
+        )
+
+    def _load_event_scoped_rows(
+        self, metric_version_id: UUID, event_id: UUID
+    ) -> list[tuple[PlayerMetricScopedSnapshot, Player, Team | None]]:
+        rows = (
+            self._session.execute(
+                self._scoped_base_query(metric_version_id, event_scope_id(event_id))
+            )
+            .unique()
+            .all()
+        )
+        return [(snapshot, player, team) for snapshot, player, team in rows]
+
     def _event_region_lookup(
         self,
         rows: list[tuple[PlayerMetricSnapshot, Player, Team | None]],
@@ -417,19 +839,42 @@ class CirRankingService:
             event.id: event_ranking_region(region=event.region, name=event.name) for event in events
         }
 
-    def _role_counts_lookup(self, player_ids: list[UUID]) -> dict[UUID, dict[str, int]]:
+    def _role_counts_lookup(
+        self,
+        player_ids: list[UUID],
+        *,
+        event_id: UUID | None = None,
+    ) -> dict[UUID, dict[str, int]]:
         if not player_ids:
             return {}
-        rows = self._session.execute(
+        query = (
             select(PlayerMapStats.player_id, Agent.role, func.sum(PlayerMapStats.rounds))
             .join(Agent, Agent.id == PlayerMapStats.agent_id)
             .where(PlayerMapStats.player_id.in_(player_ids))
-            .group_by(PlayerMapStats.player_id, Agent.role)
+        )
+        if event_id is not None:
+            query = (
+                query.join(MatchMap, MatchMap.id == PlayerMapStats.match_map_id)
+                .join(Match, Match.id == MatchMap.match_id)
+                .where(Match.event_id == event_id)
+            )
+        rows = self._session.execute(
+            query.group_by(PlayerMapStats.player_id, Agent.role)
         ).all()
         counts: dict[UUID, dict[str, int]] = {}
         for player_id, role, rounds in rows:
             counts.setdefault(player_id, {})[str(role)] = int(rounds or 0)
         return counts
+
+    def _players_by_ids(self, player_ids: list[UUID]) -> dict[UUID, Player]:
+        if not player_ids:
+            return {}
+        rows = self._session.scalars(
+            select(Player)
+            .where(Player.id.in_(player_ids))
+            .options(selectinload(Player.team_history).selectinload(PlayerTeamHistory.team))
+        ).all()
+        return {player.id: player for player in rows}
 
     def _rank_lookup(self, metric_version_id: UUID) -> dict[UUID, int]:
         rows = list(
@@ -444,6 +889,19 @@ class CirRankingService:
         )
         rows.sort(key=lambda item: (-(item[0].cir or 0.0), -item[0].rounds, item[1].handle.lower()))
         return {snapshot.player_id: index + 1 for index, (snapshot, _player) in enumerate(rows)}
+
+
+def _event_ranking_scope(event: Event, *, event_region: str | None) -> RankingScope:
+    return RankingScope(
+        type=ScopeType.EVENT.value,
+        label=event.name,
+        event_id=str(event.id),
+        vlr_event_id=event.vlr_event_id,
+        tier=event.tier,
+        region=event_region,
+        status=event.status,
+        season_year=event.season_year,
+    )
 
 
 def _allowed_statuses(
@@ -483,6 +941,114 @@ def _matches_details(
         if event not in event_ids and event not in vlr_ids:
             return False
     return True
+
+
+def _matches_player_search(player: Player, team: Team | None, search: str) -> bool:
+    needle = search.strip().lower()
+    if not needle:
+        return True
+    team_ref = _team_ref(player, team)
+    haystack = " ".join(
+        [
+            player.handle,
+            team_ref.name if team_ref else "",
+            team_ref.tag if team_ref else "",
+        ]
+    ).lower()
+    return needle in haystack
+
+
+def _matches_ranking_player_search(player: CirRankingPlayer, search: str) -> bool:
+    needle = search.strip().lower()
+    if not needle:
+        return True
+    haystack = " ".join(
+        [
+            player.handle,
+            player.team.name if player.team else "",
+            player.team.tag if player.team else "",
+        ]
+    ).lower()
+    return needle in haystack
+
+
+def _season_row_sort_key(
+    *,
+    sort: str | None,
+    order: str | None,
+) -> Callable[[tuple[PlayerMetricSnapshot, Player, Team | None]], tuple[object, ...]]:
+    descending = (order or "desc").lower() != "asc"
+    if sort is None:
+
+        def default_key(
+            item: tuple[PlayerMetricSnapshot, Player, Team | None],
+        ) -> tuple[object, ...]:
+            snapshot, player, _team = item
+            return (
+                -(snapshot.cir or 0.0),
+                -snapshot.rounds,
+                player.handle.lower(),
+            )
+
+        return default_key
+
+    field = sort.lower()
+    if field not in _SORTABLE_FIELDS:
+        field = "cir"
+
+    def key(item: tuple[PlayerMetricSnapshot, Player, Team | None]) -> tuple[object, ...]:
+        snapshot, player, _team = item
+        if field == "cir":
+            value = snapshot.cir
+        elif field == "rounds":
+            value = snapshot.rounds
+        elif field == "maps":
+            value = snapshot.maps_played
+        elif field == "kpr":
+            value = _detail_float(snapshot.details or {}, "kpr")
+        elif field == "dpr":
+            value = _detail_float(snapshot.details or {}, "dpr")
+        else:
+            # Extra descriptive fields are None on season snapshots.
+            value = None
+        return (_sort_tuple(value, descending), -snapshot.rounds, player.handle.lower())
+
+    return key
+
+
+def _ranking_player_sort_key(
+    *,
+    sort: str | None,
+    order: str | None,
+) -> Callable[[CirRankingPlayer], tuple[object, ...]]:
+    descending = (order or "desc").lower() != "asc"
+    if sort is None:
+
+        def default_key(player: CirRankingPlayer) -> tuple[object, ...]:
+            return (
+                -(player.cir or 0.0),
+                -player.rounds,
+                player.handle.lower(),
+            )
+
+        return default_key
+
+    field = sort.lower()
+    if field not in _SORTABLE_FIELDS:
+        field = "cir"
+
+    def key(player: CirRankingPlayer) -> tuple[object, ...]:
+        value = getattr(player, field, None)
+        return (_sort_tuple(value, descending), -player.rounds, player.handle.lower())
+
+    return key
+
+
+def _sort_tuple(value: float | int | None, descending: bool) -> tuple[int, float]:
+    if value is None:
+        return (1, 0.0)
+    numeric = float(value)
+    return (0, -numeric if descending else numeric)
 
 
 def _team_ref(player: Player, team: Team | None) -> TeamRef | None:
@@ -538,11 +1104,77 @@ def _to_ranking_player(
         reliability_pct=_detail_float(details, "reliability_pct"),
         rounds=snapshot.rounds,
         maps=snapshot.maps_played,
+        matches=None,
         kpr=_detail_float(details, "kpr"),
         dpr=_detail_float(details, "dpr"),
+        acs=None,
+        adr=None,
+        kd=None,
+        hs_pct=None,
+        apr=None,
+        kast=None,
+        opening_frequency=None,
+        opening_efficiency=None,
+        fk_per_round=None,
+        fd_per_round=None,
+        win_rate=None,
+        clutch=None,
         sample_status=snapshot.sample_status,
         metric_version=version.version,
         metric_version_id=str(version.id),
+        rank_label=None,
+    )
+
+
+def _to_scoped_ranking_player(
+    *,
+    rank: int,
+    snapshot: PlayerMetricScopedSnapshot,
+    player: Player,
+    team: Team | None,
+    version: MetricVersion,
+    event_region: str | None,
+    role_counts: dict[str, int],
+) -> CirRankingPlayer:
+    team_ref = _team_ref(player, team)
+    region = pick_ranking_region(
+        team_region=team_ref.region if team_ref is not None else None,
+        event_regions=[event_region],
+    )
+    return CirRankingPlayer(
+        rank=rank,
+        player_id=str(player.id),
+        handle=player.handle,
+        team=team_ref,
+        role=snapshot.role,
+        roles=build_role_mix(role_counts, snapshot.role),
+        tier=snapshot.tier,
+        region=region,
+        primary_agent=snapshot.primary_agent,
+        cir=snapshot.cir_percentile,
+        reliability=snapshot.reliability,
+        reliability_pct=reliability_pct_for_rounds(snapshot.rounds),
+        rounds=snapshot.rounds,
+        maps=snapshot.maps,
+        matches=snapshot.matches,
+        kpr=snapshot.kpr,
+        dpr=snapshot.dpr,
+        acs=snapshot.acs,
+        adr=snapshot.adr,
+        kd=snapshot.kd,
+        hs_pct=snapshot.hs_pct,
+        apr=snapshot.apr,
+        kast=snapshot.kast,
+        opening_frequency=snapshot.opening_frequency,
+        opening_efficiency=snapshot.opening_efficiency,
+        fk_per_round=snapshot.fk_per_round,
+        fd_per_round=snapshot.fd_per_round,
+        win_rate=snapshot.win_rate,
+        clutch=snapshot.clutch,
+        sample_status=snapshot.sample_status,
+        metric_version=version.version,
+        metric_version_id=str(version.id),
+        rank_label=_EVENT_RANK_LABEL,
     )
 
 
